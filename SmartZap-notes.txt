@@ -1,0 +1,11 @@
+Notes:
+================================================================================
+Startup sequence
+
+init and open serial
+    check for device
+    errors to stderr
+init curses
+    errors to logs and dialog window
+init 3 sub windows (info, menu, status (logs/error))
+enter menu wait for user
