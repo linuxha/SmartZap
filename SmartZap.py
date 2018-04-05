@@ -14,7 +14,7 @@ import traceback
 # an error code that's being returned.                                         #
 # Need to add an error window.                                                 #
 # -----------------------------------------------------------------------------#
-VERSION = "0.2.8 py"
+VERSION = "0.2.9 py"
 
 moduleID   = 0
 beginT     = 0
@@ -33,24 +33,7 @@ cfgFile    = "dot.SmartZap.ini"
 config = SafeConfigParser(os.environ)
 config.read(cfgFile)
 
-"""
-Python
-# -[ Local ]--------------------------------------------------------------------
-txTopic    = config['local']['TXTOPIC']
-
-Config file
-# -[ .broadlink.ini ]-----------------------------------------------------------
-[SmartZap]
-    # Be careful with indentation it's quite picky
-    #
-    dir      = ${HOME}/dev/SmartZap/t
-    device   = /dev/smartzap
-    filename = blank.bin
-#
-
-# -[ Fini ]---------------------------------------------------------------------
-"""
-filename   = config['SmartZap']['filename']
+lfilename   = config['SmartZap']['filename']
 directory  = config['SmartZap']['dir']
 
 # Get the user options
@@ -280,7 +263,10 @@ def zEdit():
 
     l = 23
     w = 75
-    edit = curses.newwin(l+2, w, 20, 40)
+    # Want this pretty much middle of the screen
+    xW = xMid - int(w/2)
+    yW = yMid - int((l+2)/2) - 1
+    edit = curses.newwin(l+2, w, yW, xW)
     edit.box(0,0)
     s    = "[ SmartZap %s screen ]" % mode
     slen = len(s)
@@ -366,7 +352,12 @@ def zInformation():
     ### 40x20 -for the about window
     ###
     l = len(textArray)
-    about = curses.newwin(l+2, 52, 20, 40)
+    w = 52
+    # Want this pretty much middle of the screen
+    xW = xMid - int(w/2)
+    yW = yMid - int((l+2)/2) - 1
+    #about = curses.newwin(l+2, 52, 20, 40)
+    about = curses.newwin(l+2, w, yW, xW)
     about.box(0,0)
     about.addstr(0, (26-5), "[ About ]", curses.color_pair(3))
 
@@ -377,6 +368,7 @@ def zInformation():
 
     about.touchwin()
     about.addstr(l, (26-3), "[ OK ]")
+    about.addstr(l, (25), "")
     about.getch()
 
     del about
@@ -442,20 +434,11 @@ def callMe(name):
 #
 
 # -[ Main() ]-------------------------------------------------------------------
-#
-#YMax = int(os.getenv('LINES', 25))
-#XMax = int(os.getenv('COLUMNS', 80))
-#print("%d x %d" % (XMax, YMax))
-
 stdscr = curses.initscr()
 stdscr.keypad(True)
 curses.start_color()
 curses.noecho()
 
-# Oops backwards
-#curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_YELLOW)
-#curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLUE)
-#curses.init_pair(3, curses.COLOR_BLACK, curses.COLOR_RED)
 #
 curses.init_pair(1, curses.COLOR_YELLOW, curses.COLOR_BLACK)
 curses.init_pair(2, curses.COLOR_BLUE, curses.COLOR_BLACK)
@@ -479,20 +462,15 @@ menuX  = 0
 menuY  = 2
 menuZ  = 13
 
+xMid = int(XMax/2)              # X Mid point on the total screen
+yMid = int(YMax/2)              # Y Mid point on the total screen
 # ------------------------------------------------------------------------------
 
 # Main stdscr
-#stdscr.addstr(12, 25, "Python curses in action!", curses.color_pair(2))
-#stdscr.addstr(13, 26, "Python curses in action!", curses.color_pair(1))
-#stdscr.addstr(22, 2, "%d x %d" % (XMax, YMax))
-#stdscr.addstr(23, 2, "%d x %d" % (curses.COLS, curses.LINES))
-#stdscr.refresh()
-#stdscr.getch()
-
 # Main box
 stdscr.box(0,0)
 # Title
-stdscr.addstr(0, (int((XMax)/2)-6), "[ SmartZap ]", curses.color_pair(3))
+stdscr.addstr(0, (xMid-6), "[ SmartZap ]", curses.color_pair(3))
 #stdscr.border()
 #stdscr.touchwin()
 #stdscr.getch()
@@ -503,7 +481,7 @@ myTitle = curses.newwin(5, (XMax-2-2), 1, 2)
 myTitle.box(0,0)
 
 slen = int(len(title)/2)
-myTitle.addstr(2, (int((XMax-2)/2)-slen), title)
+myTitle.addstr(2, (xMid-1-slen), title)
 
 #stdscr.touchwin()
 #stdscr.refresh()
