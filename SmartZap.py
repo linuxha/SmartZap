@@ -3,8 +3,10 @@
 from configparser import SafeConfigParser
 import curses
 import serial
-import sys,os
 import signal
+
+import sys,os
+import traceback
 
 # -[ Notes ]-------------------------------------------------------------------#
 #                                                                              #
@@ -12,7 +14,7 @@ import signal
 # an error code that's being returned.                                         #
 # Need to add an error window.                                                 #
 # -----------------------------------------------------------------------------#
-VERSION = "0.2.4 py"
+VERSION = "0.2.8 py"
 
 moduleID   = 0
 beginT     = 0
@@ -24,13 +26,6 @@ filename   = "<None>"
 devicename = "</dev/null>"
 directory  = "/tmp/"
 cfgFile    = "dot.SmartZap.ini"
-
-# Get the user options
-if(len(sys.argv) == 2) :
-    devicename = sys.argv[1];
-else :
-    devicename = "/dev/zapper"
-#
 
 #onfig = configparser.ConfigParser()
 # use SafeConfigParser to turn %(HOME)s into /home/njc
@@ -56,13 +51,20 @@ Config file
 # -[ Fini ]---------------------------------------------------------------------
 """
 filename   = config['SmartZap']['filename']
-devicename = config['SmartZap']['device']
 directory  = config['SmartZap']['dir']
-    
+
+# Get the user options
+if(len(sys.argv) == 2) :
+    devicename = sys.argv[1];
+else:
+    devicename = config['SmartZap']['device']
+#
+
+
 # ------------------------------------------------------------------------------
 # configure the serial connections
 ser = serial.Serial(
-    port     = '/dev/ttyUSB0',
+    port     = devicename,
     baudrate = 9600,
     parity   = serial.PARITY_NONE,
     stopbits = serial.STOPBITS_ONE,
@@ -251,6 +253,18 @@ def zFill():
     pass
 #
 
+#
+import string
+def xchr(x):
+    c = chr(x)
+    #if(c in string.ascii_letters):
+    if((c in string.printable) and (c not in string.whitespace)):
+        return c
+    else:
+        return '.'
+    #
+#
+
 # was zPrint
 # addr  00 01 02 03 03 05 06 07 08 09 0A 0B 0C 0D 0E 0F  0123456789ABCDEF
 # 0000
@@ -258,6 +272,11 @@ def zFill():
 def zEdit():
     mode = "Print"
     zMenu.addstr(mboxHt-2, 2, "Status: zEdit")
+
+    # Test for Ascii
+    for i in range(0,256):
+        stow[i] = i
+    #
 
     l = 23
     w = 75
@@ -268,32 +287,52 @@ def zEdit():
     mid  = int((w-slen)/2)
     edit.addstr(0, mid, s, curses.color_pair(3))
     line = 2
-    edit.addstr(line, 2, "addr  00 01 02 03 03 05 06 07 08 09 0A 0B 0C 0D 0E 0F  0123456789ABCDEF")
+    edit.addstr(line, 2, "Addr  00 01 02 03 03 05 06 07 08 09 0A 0B 0C 0D 0E 0F  0123456789ABCDEF")
     line += 1
     edit.addstr(line, 2, "====  ===============================================  ================")
     offset = 0
-    # 16 bytes by 16 lines, 256 bytes/screen
-    for x in range(16):
-        line += 1
-        # Print addr
-        edit.addstr(line, 2, "%04X" % offset)
-        # Print hex value, Print ASCII value
-        for a in range(16):
-            offset += 1
-            v = a
-            edit.addstr(line,  8+(a*3), "%02x" % v)
-            edit.addstr(line, 57+a,     "%x"   % v)
-        # offset += 16 # This will be handled by the for loop
-    #
-    line += 1
-    edit.addstr(line, 2, "====  ===============================================  ================")
-    edit.addstr(l-1, 8, "Prompt> ")
-    k = edit.getch()
-    if(k == 'x'):
-        del edit
-        zRefresh()
-        return
-    #
+    addr   = 0
+
+    pages = int(promSize/256)
+    while(offset < promSize):
+        tLine = line
+        # 16 bytes by 16 lines, 256 bytes/screen
+        for x in range(16):
+            tLine += 1
+            # Print addr
+            # We can only have 20 lines, yet we have 25
+            edit.addstr(tLine, 2, "%04X" % addr)
+
+            # Print hex value, Print ASCII value
+            for a in range(16):
+                v = stow[addr]
+                addr += 1
+                edit.addstr(tLine,  8+(a*3), "%02x" % v)
+                edit.addstr(tLine, 57+a,     "%s"   % xchr(v))
+            # That's one complete line
+            #
+        # That's one complete screen
+        #
+        offset += 256 # 1 page = 256 or 16x16
+        page    = int(offset/256)
+        s = "[ Page: %02d of %0d ]" % (page, pages)
+        slen = len(s)
+        mid  = int((w-slen)/2)
+        edit.addstr(l+1, mid, s, curses.color_pair(3))
+        #
+        tLine += 1
+        edit.addstr(tLine, 2, "====  ===============================================  ================")
+        edit.addstr(l-1, 8, "Prompt> ")
+
+        k = edit.getch()
+        edit.addstr(l-1, 16, chr(k))
+        if(k == 0x78):
+            #del edit
+            zRefresh()
+            offset = promSize+1
+            #return
+        #
+    # while
     del edit
     zRefresh()
 #
@@ -365,7 +404,7 @@ def zExit():
 #
 
 def zRefresh():
-    zMenu.addstr(mboxHt-2, 2, "Status: zRefresh")
+    zMenu.addstr(mboxHt-2, 2, "Status: zRefresh                    ")
     stdscr.touchwin()
     stdscr.refresh()
     myTitle.touchwin()
@@ -443,12 +482,12 @@ menuZ  = 13
 # ------------------------------------------------------------------------------
 
 # Main stdscr
-stdscr.addstr(12, 25, "Python curses in action!", curses.color_pair(2))
-stdscr.addstr(13, 26, "Python curses in action!", curses.color_pair(1))
-stdscr.addstr(22, 2, "%d x %d" % (XMax, YMax))
-stdscr.addstr(23, 2, "%d x %d" % (curses.COLS, curses.LINES))
-stdscr.refresh()
-stdscr.getch()
+#stdscr.addstr(12, 25, "Python curses in action!", curses.color_pair(2))
+#stdscr.addstr(13, 26, "Python curses in action!", curses.color_pair(1))
+#stdscr.addstr(22, 2, "%d x %d" % (XMax, YMax))
+#stdscr.addstr(23, 2, "%d x %d" % (curses.COLS, curses.LINES))
+#stdscr.refresh()
+#stdscr.getch()
 
 # Main box
 stdscr.box(0,0)
@@ -458,20 +497,24 @@ stdscr.addstr(0, (int((XMax)/2)-6), "[ SmartZap ]", curses.color_pair(3))
 #stdscr.touchwin()
 #stdscr.getch()
 
+# ------------------------------------------------------------------------------
 # Title box, this needs to be an odd size
 myTitle = curses.newwin(5, (XMax-2-2), 1, 2)
 myTitle.box(0,0)
+
 slen = int(len(title)/2)
 myTitle.addstr(2, (int((XMax-2)/2)-slen), title)
-myTitle.touchwin()
-myTitle.refresh()
-stdscr.touchwin()
-stdscr.refresh()
 
+#stdscr.touchwin()
+#stdscr.refresh()
+
+#myTitle.touchwin()
+#myTitle.refresh()
+# ------------------------------------------------------------------------------
 # Info box, this needs to be an odd size
 zInfo = curses.newwin(7, (XMax-2-2), 6, 2)
 zInfo.box(0,0)
-zInfo.touchwin()
+#zInfo.touchwin()
 
 ###
 ### Info window
@@ -480,14 +523,14 @@ zInfo.addstr(2, 20, "SmartZap")
 zInfo.addstr(2, 40, "Module ID: %02x" % moduleID) # In hex?
 zInfo.addstr(2, 80, "Begin Area for Zap: 0x%04x" % beginT)
 
-zInfo.addstr(3, 40, "PROM Size: 0x%0x4" % promSize)
+zInfo.addstr(3, 40, "PROM Size: 0x%04x" % promSize)
 zInfo.addstr(3, 80, "End Area for Zap:   0x%04x" % endT)
 
 zInfo.addstr(4, 40, "Filename:  %s" % filename)
-zInfo.addstr(4, 80, "Port: %s" % devicename)
+zInfo.addstr(4, 80, "Port:               %s" % devicename)
 
-zInfo.refresh()                 # If you update multiple things
-stdscr.refresh()                # Also update stdscr
+#zInfo.refresh()                 # If you update multiple things
+#stdscr.refresh()                # Also update stdscr
 
 # -[ Menu ]---------------------------------------------------------------------
 # Menu box, this needs to be an odd size
@@ -498,7 +541,9 @@ mboxHt = (YMax-7-5-2)
 mboxWd = (XMax-2-2)
 zMenu = curses.newwin(mboxHt, mboxWd, 13, 2)
 zMenu.box(0,0)
-zMenu.touchwin()
+#zMenu.touchwin()
+
+zRefresh()
 
 r = ''
 while(r != 'x'):
@@ -548,7 +593,10 @@ while(r != 'x'):
     zMenu.addstr(y, x, "Prompt:  ")
     #r = zMenu.getch()
     r = zMenu.getkey()
-    zMenu.addstr(y, x+9, "%s [%s]" % (r, r))
+    k = ord(r)
+    if( k < 0x7f and k > 0x19): # isPrintable(r)
+        zMenu.addstr(y, x+9, "%s [%s]" % (r, r))
+    #
     zMenu.refresh()
     callMe(r)
     stdscr.refresh()                # Also update stdscr
@@ -556,3 +604,51 @@ while(r != 'x'):
 # ------------------------------------------------------------------------------
 zExit()                         # I shouldn't reach here but just in case ...
 # -[ fini ]----------------------------------------------------------------------------
+
+"""
+                try:
+                except Exception as err:
+                    exc_type, exc_value, exc_traceback = sys.exc_info()
+                    stdscr.refresh()
+                    curses.echo()
+                    stdscr.keypad(False)
+                    curses.endwin()
+
+                    print("\n\n=[ traceback ]==================================================================", file=sys.stderr)
+                    print("\nUnexpected error:", sys.exc_info()[0], file=sys.stderr)
+                    print("Oops, can't read ", err, file=sys.stderr)
+                    #rint("Oops, can't read ", sys.exc_traceback.tb_lineno, file=sys.stderr)
+                    print("TB", file=sys.stderr)
+                    traceback.print_tb(exc_traceback, file=sys.stderr)
+                    print("EXC", file=sys.stderr)
+                    traceback.print_exc(file=sys.stderr)
+                    print("\nline = %d\naddr = 0x%04x\noffset = %\n" % (tLine, addr, offset), file=sys.stderr)
+                    exit()
+                #
+
+    if(MEMORY):
+    else:
+        # 16 bytes by 16 lines, 256 bytes/screen
+        for x in range(16):
+            line += 1
+            # Print addr
+            edit.addstr(line, 2, "%04X" % offset)
+            # Print hex value, Print ASCII value
+            for a in range(16):
+                offset += 1
+                v = a
+                edit.addstr(line,  8+(a*3), "%02x" % v)
+                edit.addstr(line, 57+a,     "%x"   % v)
+            # offset += 16 # This will be handled by the for loop
+        #
+        line += 1
+        edit.addstr(line, 2, "====  ===============================================  ================")
+        edit.addstr(l-1, 8, "Prompt> ")
+        k = edit.getch()
+        if(k == 'x'):
+            del edit
+            zRefresh()
+            return
+        #
+    #
+"""
