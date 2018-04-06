@@ -1,25 +1,45 @@
 #!/usr/bin/python3
 
+VERSION = "0.2.14 py"
+
 from configparser import SafeConfigParser
 import curses
 import serial
 import signal
 
-import sys,os
+import sys,os,time
 import traceback
 
+#
+import bincopy                  # Hex related 'stuff'
+#
+"""
+###
+### Read in file
+###
+>>> f = bincopy.BinFile("sbug-mod.s19")
+>>> f.info()
+'Data address ranges:\n                         0x0000f800 - 0x00010000\n'
+>>> a = f.as_binary() # byte array
+###
+### Write ihex to a file
+###
+w = open('outfile.ihx', 'w')    # write to the file outfile.ihx
+print(f.as_ihex())              # write the Intel hex to stdout
+print(f.as_ihex(), file=w)      # write the Intel hex to the file outfile.ihx as w
+w.close()                       # close the file object w
+"""
 # -[ Notes ]-------------------------------------------------------------------#
 #                                                                              #
 # Need to add error handling (echo doesn't match). I'm pretty sure it's an     #
 # an error code that's being returned.                                         #
 # Need to add an error window.                                                 #
 # -----------------------------------------------------------------------------#
-VERSION = "0.2.9 py"
-
 moduleID   = 0
 beginT     = 0
 endT       = 0
 promSize   = 0
+# Array of ints
 stow       = [ 0xff ] * 64 * 1024 # 64K - 27512
 
 filename   = "<None>"
@@ -33,7 +53,8 @@ cfgFile    = "dot.SmartZap.ini"
 config = SafeConfigParser(os.environ)
 config.read(cfgFile)
 
-lfilename   = config['SmartZap']['filename']
+lfilename  = config['SmartZap']['filename']
+filename   = lfilename
 directory  = config['SmartZap']['dir']
 
 # Get the user options
@@ -55,6 +76,56 @@ ser = serial.Serial(
     timeout  = 0.250
 )
 
+# '1' != 0x31 (str != int)
+# ba = bytearray(
+"""
+# Array of string
+sa = [ '1', '2', '3', '4' ]
+array_of_int = [ int(numeric_string) for numeric_string in sa ]
+
+# Array of ints
+>>> a = [ 0x31, 0x32, 0x33, 0x34, 0x01, 0x02, 0x03, 0x04, 0x20, 0x08 ]
+>>> type(a[9])
+<class 'int'>
+>>> type(a[0])
+<class 'int'>
+>>> ba = bytearray(a)
+>>> type(be)
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+NameError: name 'be' is not defined
+>>> type(ba)
+<class 'bytearray'>
+>>> s = [ '1', '2', '3' ]
+>>> sba = bytearray(s)
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+TypeError: an integer is required
+
+>>> r = open("worfile", "rb")
+>>> r.read(10)
+b'1234\x01\x02\x03\x04 \x08'
+>>> type(r.read(10))
+<class 'bytes'>
+>>> rb = r.read(10) # can't read 10 more, there are only 10 total
+>>> rb
+b''
+>>> r.seek(0)       # seek back to the beginning
+0
+>>> rb = r.read(10)
+>>> len(rb)
+10
+>>> rb
+b'1234\x01\x02\x03\x04 \x08'
+>>> rb[0]
+49
+>>> 
+
+""
+
+"""
+#
+# Write int to bytes
 #
 def sendEcho(i):
     #ser.write(bytearray.fromhex(s)) # from string '0xfb'
@@ -62,18 +133,22 @@ def sendEcho(i):
 
     #time.sleep(0.150)
 
-    print("Waiting = %d" % ser.in_waiting)
+    #print("\rWaiting = %d" % ser.in_waiting)
     t = ser.read(1)
-    print("<Tx: 0x%02x>" % int.from_bytes(t, byteorder='big', signed=False))
+    #print("\r<Tx: 0x%02x>" % int.from_bytes(t, byteorder='big', signed=False))
     # s is a string, hex equivalent
     # 'ff' == 0xff
     return(int.from_bytes(t, byteorder='big', signed=False))
 #
 
+#
+# Read 1 byte1 from the serial port
+# return the int value of it
+#
 def recvEcho():
     #time.sleep(0.100)
     t = ser.read(1)
-    print("<Rx: 0x%02x>" % int.from_bytes(t, byteorder='big', signed=False))
+    #print("\r<Rx: 0x%02x>" % int.from_bytes(t, byteorder='big', signed=False))
     ser.write(t)
     return(int.from_bytes(t, byteorder='big', signed=False))
 #
@@ -98,64 +173,8 @@ def zModuleID():
     promSize = endT+1
 #
 
-def zUpload(mySocket):
-    global stow
-
-    print("Socket: 0x%02x" % mySocket)
-    try:
-        if(moduleID == 0):
-            print("Get module information")
-            zModuleID()
-            print('ID: 0x%02x' % moduleID)
-            print('B:  0x%04x' % beginT)
-            print('E:  0x%04x' % endT)
-            checkErr()
-            print("Now get PROM contents")
-            #
-            print("inWaiting:  %d" % ser.inWaiting())
-            print("outWaiting: %d" % ser.out_waiting) # weird
-        #
-        # Send cmd = F7
-        # then 40 for Master socket
-        # or   80 for the clone socket
-        #  (get echo)
-        #  then
-        # idx = 0
-        # for i in beginT to EndT:
-        #    stow[idx] = recvEcho()
-        #    idx += 1
-        sendEcho(0xf7)
-        sendEcho(mySocket)
-        print("Data:")
-        for idx in range(beginT, endT+1):
-            stow[idx] = recvEcho()
-            if(DEBUG):
-                ###
-                ### For debugging, don't keep this here
-                ###
-                if(stow[idx] != 0x02):
-                    print("Not 0x02 (stow[0x%04x] = (0x%02x))" % (idx, stow[idx]), file=sys.stderr)
-                #
-            #
-        #
-        checkErr()
-    except Exception as err:
-        print("Unexpected error:", sys.exc_info()[0])
-    #
-#
-
-def checkErr():
-    if(sendEcho(0xff) != 0xff):
-        print("Error, hit the reset to clear", file=sys.stderr)
-    else:
-        print("Okay", file=sys.stderr)
-    #
-    while(ser.inWaiting()):
-        recvEcho()
-    #
-#
-
 def myExit():
+    # Don't we need to clean up the ncurses stuff here?
     ser.close()
     exit(0)
 #
@@ -206,9 +225,132 @@ def zZap():
     pass
 #
 
-def zUpload():
-    zMenu.addstr(mboxHt-2, 2, "Status: zUpload")
+#
+def zDialog():
+    l = 6
+    w = 34
+    # Want this pretty much middle of the screen
+    xW = xMid - int(w/2)
+    yW = yMid - int((l+2)/2) - 1
+    diag = curses.newwin(l+2, w, yW, xW)
+    diag.box(0,0)
+    s    = "[ SmartZap Socket selection ]"
+    slen = len(s)
+    mid  = int((w-slen)/2)
+    diag.addstr(0, mid, s, curses.color_pair(3))
+
+    diag.addstr(2, 3, "1 for Master socket (right)")
+    diag.addstr(3, 3, "2 for Clone socket (left)")
+
+    diag.addstr(l-1, 8, "Prompt> ")
+    k = diag.getch()
+
+    del diag
+    zRefresh()
+
+    if(k == 0x32): # 0x32 is ASCII 2 (Clone socket)
+        return(0x80)
+    else:
+        return(0x40)
+    #
+#
+
+#
+def spinner():
+    """
+    # Shell script version
+    spin () {
+        ARRAY=( "-", "\\", "|", "/", "-", "\\", "|", "/" )
+        ELEMENTS=${#ARRAY[@]}
+        # echo each element in array 
+        # for loop
+        for (( i=0;i<$ELEMENTS;i++)); do
+           echo -n -e "\r${ARRAY[${i}]}"
+           sleep $spinpause
+        done
+    }
+    """
     pass
+#
+
+#
+def checkErr():
+    rtn = 0
+    if(sendEcho(0xff) != 0xff):
+        #print("\r    Error, hit the reset to clear", file=sys.stderr)
+        rtn = 0
+    else:
+        #print("\r    Okay", file=sys.stderr)
+        rtn = 1
+    #
+    while(ser.inWaiting()):
+        recvEcho()
+    #
+    return(rtn)
+#
+
+#
+def zUpload():
+    global stow
+    # From the main while loop for zMenu
+    y = int(mboxHt * 0.75)
+    x = int(mboxWd/2) - 9
+    spinner = [ "-", "\\", "|", "/", "-", "\\", "|", "/" ]
+    zMenu.addstr(mboxHt-2, 2, "Status: zUpload")
+
+    # need to get which socket
+    # for now it's the Master
+    mySocket = zDialog()
+
+    try:
+        if(moduleID == 0):
+            zModuleID()
+            checkErr()
+            #
+            #print("inWaiting:  %d" % ser.inWaiting())
+            #print("outWaiting: %d" % ser.out_waiting) # weird
+        #
+        # Send cmd = F7
+        # then 40 for Master socket
+        # or   80 for the clone socket
+        #  (get echo)
+        #  then
+        # idx = 0
+        # for i in beginT to EndT:
+        #    stow[idx] = recvEcho()
+        #    idx += 1
+        sendEcho(0xf7)
+        sendEcho(mySocket)
+
+        for idx in range(beginT, endT+1):
+            # Spinner would go here
+            zMenu.addstr(y, x+9, spinner[int(idx%8)])
+            stow[idx] = recvEcho()
+            zMenu.refresh()
+        #
+        if(checkErr()):
+            zMenu.addstr(y, x+9, "Okay  ")
+        else:
+            zMenu.addstr(y, x+9, "Error, hit the reset to clear")
+        #
+    except Exception as err:
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+        #stdscr.refresh()
+        curses.echo()
+        stdscr.keypad(False)
+        curses.endwin()
+
+        print("\n\n=[ traceback ]==================================================================", file=sys.stderr)
+        print("\nUnexpected error:", sys.exc_info()[0], file=sys.stderr)
+        print("Oops, can't read ", err, file=sys.stderr)
+        #rint("Oops, can't read ", sys.exc_traceback.tb_lineno, file=sys.stderr)
+        print("TB", file=sys.stderr)
+        traceback.print_tb(exc_traceback, file=sys.stderr)
+        print("EXC", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        exit()
+    #
+    zRefresh()
 #
 
 def zErase():
@@ -221,16 +363,110 @@ def zVerify():
     pass
 #
 
+#
+###
+### Write to the file
+###
+"""
+###
+### Read in file
+###
+>>> f = bincopy.BinFile("sbug-mod.s19")
+>>> f.info()
+'Data address ranges:\n                         0x0000f800 - 0x00010000\n'
+>>> a = f.as_binary() # byte array
+###
+### Write ihex to a file
+###
+w = open('outfile.ihx', 'w')    # write to the file outfile.ihx
+print(f.as_ihex())              # write the Intel hex to stdout
+print(f.as_ihex(), file=w)      # write the Intel hex to the file outfile.ihx as w
+w.close()                       # close the file object w
+
+###
+### Check that a file exists
+###
+>>> import os
+>>> fname = "file.s1"           # a file that doesn't exist
+>>> os.path.isfile(fname) 
+False
+>>> 
+
+###
+### take an array of strings and save them to file
+###
+>>> s = [ '1', '2', '3' ]
+>>> s
+['1', '2', '3']
+>>> ba = bytearray(ord(i) for i in s)
+>>> ba
+bytearray(b'123')
+
+>>> f = bincopy.BinFile()       # Create an empty bincopy object
+>>> ba
+bytearray(b'123')
+>>> f.add_binary(ba)
+>>> f.as_srec()
+'S3080000000031323361\nS5030001FB\n'
+>>> 
+
+add_binary(data, address=0, overwrite=False)[source]
+Add given data at given address. Set overwrite to True to allow already added data to be overwritten.
+"""
+###
+### From the filename ext, determine which format to use
+###   .bin  - raw format (should be in 1K increments) (starts at 0)
+###   .srec - Motorola S-Records
+###   .ihx  - Intel hex format
+###
 def zSave():
     zMenu.addstr(mboxHt-2, 2, "Status: zSave")
-    pass
+    ###
+    ### WIP (Work In Progress)
+    ###
+    ba = bytearray(stow[beginT:endT]) # Limit the Array to the Current PROM Size
+    bcObj = bincopy.BinFile()
+    bcObj.add_binary(ba)        # We need to tell bincopy x thru y
+    
+    w = open(filename, 'w')        # write to the file outfile.ihx
+    print(bcObj.as_ihex(), file=w) # write the Intel hex to the file outfile.ihx as w
+    w.close()                      # close the file object w
+    #
 #
 
+#
+###
+### Read a file
+###
+"""
+###
+### Read in file
+###
+>>> f = bincopy.BinFile("sbug-mod.s19")
+>>> f.info()
+'Data address ranges:\n                         0x0000f800 - 0x00010000\n'
+>>> a = f.as_binary() # byte array
+###
+### Write ihex to a file
+###
+w = open('outfile.ihx', 'w')    # write to the file outfile.ihx
+print(f.as_ihex())              # write the Intel hex to stdout
+print(f.as_ihex(), file=w)      # write the Intel hex to the file outfile.ihx as w
+w.close()                       # close the file object w
+"""
 def zLoad():
     zMenu.addstr(mboxHt-2, 2, "Status: zLoad")
+    # Load a file into an array
     pass
 #
 
+#
+def zFile():
+    zMenu.addstr(mboxHt-2, 2, "Status: zFile")
+    pass
+#
+
+#
 def zFill():
     zMenu.addstr(mboxHt-2, 2, "Status: zFill")
     pass
@@ -255,11 +491,6 @@ def xchr(x):
 def zEdit():
     mode = "Print"
     zMenu.addstr(mboxHt-2, 2, "Status: zEdit")
-
-    # Test for Ascii
-    for i in range(0,256):
-        stow[i] = i
-    #
 
     l = 23
     w = 75
@@ -368,7 +599,7 @@ def zInformation():
 
     about.touchwin()
     about.addstr(l, (26-3), "[ OK ]")
-    about.addstr(l, (25), "")
+    about.addstr(l, (25), "")         # position the cursor on the 'O' of Ok
     about.getch()
 
     del about
@@ -392,7 +623,7 @@ def zExit():
     curses.echo()
     stdscr.keypad(False)
     curses.endwin()
-    myExit(0)
+    myExit()
 #
 
 def zRefresh():
@@ -407,6 +638,61 @@ def zRefresh():
     zMenu.refresh()
 #
 
+#
+#def zWait(waitString):
+def zWait():
+    spinner = [ "-", "\\", "|", "/", "-", "\\", "|", "/" ]
+    # Create a wait box in the middle of the screen
+    # Twiddle our thumbs until done (spinner)
+    # then say yea or nay
+    # we should probably have a timeout or something
+    l = 4
+    w = 34
+    # Want this pretty much middle of the screen
+    xW = xMid - int(w/2)
+    yW = yMid - int((l+2)/2) - 1
+    wait = curses.newwin(l+2, w, yW, xW)
+    wait.box(0,0)
+    s    = "[ The Busy Box ]"
+    slen = len(s)
+    mid  = int((w-slen)/2)
+    wait.addstr(0, mid, s, curses.color_pair(3))
+
+    try:
+        # cursor state to
+        #   invisible,   (0)
+        #   normal,      (1)
+        #   very visible (2)
+        wait.curs_set(0)
+    except:
+        pass # Don't blow up if you can't do this
+    #
+    wait.addstr(2, 3, "Please wait ... ")
+    for idx in range(0,80):
+        # Spinner would go here
+        wait.addstr(2, 19, spinner[int(idx%8)])
+        wait.refresh()
+        time.sleep(0.250)
+    #
+    wait.addstr(2, 19, "Good")
+    s    =  "[ Okay ]"
+    slen = len(s)
+    mid  = int((w-slen)/2)
+    try:
+        wait.curs_set(1)
+    except:
+        pass # Don't blow up if you can't do this
+    #
+    wait.addstr(3, mid, s)
+    wait.addstr(3, mid+2, "") # Put the cursor on Okay
+    wait.getkey()
+
+    del wait
+    zRefresh()
+
+#
+
+#
 zCmds = {
     'z':  zZap,
     'u':  zUpload,
@@ -421,6 +707,7 @@ zCmds = {
     'c':  zChange,
     'a':  zCleanEE,
     'x':  zExit,
+    '1':  zWait,
     0x0C: zRefresh
 }
 
