@@ -663,7 +663,7 @@ def zWait():
         #   invisible,   (0)
         #   normal,      (1)
         #   very visible (2)
-        wait.curs_set(0)
+        wait.curs_set(1)
     except:
         pass # Don't blow up if you can't do this
     #
@@ -679,7 +679,7 @@ def zWait():
     slen = len(s)
     mid  = int((w-slen)/2)
     try:
-        wait.curs_set(1)
+        wait.curs_set(2)
     except:
         pass # Don't blow up if you can't do this
     #
