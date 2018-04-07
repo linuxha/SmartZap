@@ -3,7 +3,9 @@
 VERSION = "0.2.14 py"
 
 from configparser import SafeConfigParser
+
 import curses
+import curses.textpad
 import serial
 import signal
 
@@ -12,6 +14,19 @@ import traceback
 
 #
 import bincopy                  # Hex related 'stuff'
+
+# -[ Notes ]--------------------------------------------------------------------
+# I've tried to keep this simple. Basically following along with the simple menu
+# model I created in 1987. Problem is that I've grown used to menu'd applications
+# and the standard ways we interface with them. For now I'll stick to the menu
+# Ignore the spinner and zWait and the fancy edit modes will need to wait. That
+# might be something better left to C.
+#
+# The function of this program is to facilitate taking binary or hex files and
+# writing them to an EPROM and reading an EPROM and writing them to binary or
+# hex files.
+# ------------------------------------------------------------------------------
+
 #
 """
 ###
@@ -53,9 +68,8 @@ cfgFile    = "dot.SmartZap.ini"
 config = SafeConfigParser(os.environ)
 config.read(cfgFile)
 
-lfilename  = config['SmartZap']['filename']
-filename   = lfilename
-directory  = config['SmartZap']['dir']
+filename  = config['SmartZap']['filename']
+directory = config['SmartZap']['dir']
 
 # Get the user options
 if(len(sys.argv) == 2) :
@@ -75,6 +89,13 @@ ser = serial.Serial(
     bytesize = serial.EIGHTBITS,
     timeout  = 0.250
 )
+
+###
+### Python Serial supports RFC2217 - Telnet Com Port Control Option
+### I think I have at least one device that supports this but I also
+### the Digi EL162 (remote network serial ports as opposed to a terminal
+### server).
+###
 
 # '1' != 0x31 (str != int)
 # ba = bytearray(
@@ -194,30 +215,6 @@ while(sendEcho(0xff) != 0xff):
 #
 print(" passed", file=sys.stderr)
 zModuleID()                     #  get the Module info
-
-###
-### Python Serial supports RFC2217 - Telnet Com Port Control Option
-### I think I have at least one device that supports this but I also
-### the Digi EL162 (remote network serial ports as opposed to a terminal
-### server).
-###
-# ------------------------------------------------------------------------------
-def zOut():
-    pass
-#
-
-###
-### Get Input from zapper then echo back
-###
-def zIn():
-    pass
-#
-###
-### Just get the one character (an Error occurred?)
-###
-def zIn2():
-    pass
-#
 
 # ------------------------------------------------------------------------------
 def zZap():
@@ -420,6 +417,11 @@ Add given data at given address. Set overwrite to True to allow already added da
 ###   .ihx  - Intel hex format
 ###
 def zSave():
+    # for now I'll just create a new window with a text box, inside
+    # the text box I'll have the path and the filename. Then when
+    # that's selected we can either do a normal write or a print of
+    # bincopy. I'm not sure how I'll handle a bincopy where the memory
+    # is offset from zero.
     zMenu.addstr(mboxHt-2, 2, "Status: zSave")
     ###
     ### WIP (Work In Progress)
@@ -435,9 +437,6 @@ def zSave():
 #
 
 #
-###
-### Read a file
-###
 """
 ###
 ### Read in file
@@ -447,17 +446,56 @@ def zSave():
 'Data address ranges:\n                         0x0000f800 - 0x00010000\n'
 >>> a = f.as_binary() # byte array
 ###
-### Write ihex to a file
-###
-w = open('outfile.ihx', 'w')    # write to the file outfile.ihx
-print(f.as_ihex())              # write the Intel hex to stdout
-print(f.as_ihex(), file=w)      # write the Intel hex to the file outfile.ihx as w
-w.close()                       # close the file object w
+>>> f = open('file.bin', 'rb')
+>>> b = f.read()
+>>> len(b)
+5
+>>> type(b)
+<class 'bytes'>
+>>> b[0]
+1
+>>> b[4]
+10
+>>> w = open('file2.bin', 'wb')
+>>> w.write(b)
+5
+>>> w.write(b)
+5
+>>> w.close()                   # file2.bin contain 10 bytes
+>>> 
 """
+###
+### Read a file
+###
 def zLoad():
+    global directory, filename
+    # for now I'll just create a new window with a text box, inside the text box
+    # I'll have the path and the filename. Then when that's selected we can
+    # either do a normal read or a bincopy. I'm not sure how I'll handle a
+    # bincopy where the memory is offset from zero.
     zMenu.addstr(mboxHt-2, 2, "Status: zLoad")
     # Load a file into an array
+    (fullFileName, directory, filename) = fileTextbox(directory, filename)
+    # Once we're here we need to get the extension
+    zInfoStuff(zInfo)
+    zRefresh()
     pass
+#
+
+def zInfoStuff(scr):
+    ###
+    ### Info window
+    ###
+    scr.addstr(2, 20, "SmartZap")
+    scr.addstr(2, 40, "Module ID: %02x" % moduleID) # In hex?
+    scr.addstr(2, 80, "Begin Area for Zap: 0x%04x" % beginT)
+
+    scr.addstr(3, 40, "PROM Size: 0x%04x" % promSize)
+    scr.addstr(3, 80, "End Area for Zap:   0x%04x" % endT)
+
+    scr.addstr(4, 40, "Filename:  %s" % filename)
+    scr.addstr(4, 80, "Port:               %s" % devicename)
+    scr.touchwin()
 #
 
 #
@@ -489,6 +527,10 @@ def xchr(x):
 # 0000
 # 0100  
 def zEdit():
+    # Normal mode for zEdit is print
+    # but I want to be able to edit the segments in memory and move them around
+    # So that would be in the edit mode. Not sure how I'll deal with this yet.
+    # For now I'll just keep it simple
     mode = "Print"
     zMenu.addstr(mboxHt-2, 2, "Status: zEdit")
 
@@ -638,7 +680,11 @@ def zRefresh():
     zMenu.refresh()
 #
 
-#
+###
+### ARGH! thought there might be an easy way to use some form of threads
+### or other concurrency with Python. My first attempt at it either runs
+### thread A or thread B. Not what I want
+###
 #def zWait(waitString):
 def zWait():
     spinner = [ "-", "\\", "|", "/", "-", "\\", "|", "/" ]
@@ -668,6 +714,7 @@ def zWait():
         pass # Don't blow up if you can't do this
     #
     wait.addstr(2, 3, "Please wait ... ")
+    wait.addstr(2, 19, spinner[int(idx%8)])
     for idx in range(0,80):
         # Spinner would go here
         wait.addstr(2, 19, spinner[int(idx%8)])
@@ -691,6 +738,71 @@ def zWait():
     zRefresh()
 
 #
+
+#
+# A text pad goes inside a window
+# For some reason I get an ACS_HLINE error is I use curses.ACS_HLINE
+# or just ACS_HLINE in the underlineChr
+def maketextbox(screen, h, w, y, x, value="", deco=None, underlineChr="_", textColorpair=0, decoColorpair=0):
+    nw = curses.newwin(h, w, y, x)
+    txtbox = curses.textpad.Textbox(nw, insert_mode=True)
+
+    if deco=="frame":
+        screen.attron(decoColorpair)
+        curses.textpad.rectangle(screen,y+1,x,y+h-2,x+w-2)
+        screen.attroff(decoColorpair)
+    elif deco=="underline":
+        screen.hline(y+1, x, underlineChr, w, decoColorpair)
+    #
+
+    nw.addstr(0, 0, value, textColorpair)
+    nw.attron(textColorpair)
+    screen.refresh()
+
+    return txtbox
+#
+
+#
+def fileTextbox(dName, fName):
+    # take the existing dir path and filename then present that to the user
+    fpath = ("%s/%s") %(dName, fName)
+    fnLen = len(fpath)
+    #                                                 48
+    #  0       8                                        50
+    #  +------------------------------------------------+
+    #  | Path: [                                      ] |
+    #  +------------------------------------------------+
+    l = 6
+    w = fnLen + 80 + 4
+    # Center the box
+    global xMid, yMid
+    xPos = xMid - int(w/2)
+    yPos = yMid - int((l+2)/2) - 1
+    xwin = curses.newwin(l, w, yPos, xPos)
+    xwin.box(0, 0)
+    xwin.addstr(0, 2, "[ File ]", curses.color_pair(1))
+    xwin.addstr(2, 2, "Text: ")
+    xwin.refresh()
+
+    foo = maketextbox(stdscr,
+                      1, w-9,
+                      yPos+2, xPos+8,
+                      fpath,
+                      deco="underline",
+                      textColorpair=curses.color_pair(0),
+                      decoColorpair=curses.color_pair(1))
+    text = foo.edit()
+    del foo, xwin
+    zRefresh()
+    # hey, what do we do if we don't get anything back?
+    try:
+        dName, fName = text.rsplit('/', 1)
+    except: # ValueError
+        # temp, I need to restore to the original values
+        dName = "/path/to"
+        fName = "dummy"
+    #
+    return text, dName, fName
 
 #
 zCmds = {
@@ -781,19 +893,7 @@ zInfo = curses.newwin(7, (XMax-2-2), 6, 2)
 zInfo.box(0,0)
 #zInfo.touchwin()
 
-###
-### Info window
-###
-zInfo.addstr(2, 20, "SmartZap")
-zInfo.addstr(2, 40, "Module ID: %02x" % moduleID) # In hex?
-zInfo.addstr(2, 80, "Begin Area for Zap: 0x%04x" % beginT)
-
-zInfo.addstr(3, 40, "PROM Size: 0x%04x" % promSize)
-zInfo.addstr(3, 80, "End Area for Zap:   0x%04x" % endT)
-
-zInfo.addstr(4, 40, "Filename:  %s" % filename)
-zInfo.addstr(4, 80, "Port:               %s" % devicename)
-
+zInfoStuff(zInfo)
 #zInfo.refresh()                 # If you update multiple things
 #stdscr.refresh()                # Also update stdscr
 
