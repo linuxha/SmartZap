@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-VERSION = "0.2.14 py"
+VERSION = "0.2.15 py"
 
 from configparser import SafeConfigParser
 
@@ -416,6 +416,13 @@ Add given data at given address. Set overwrite to True to allow already added da
 ###   .srec - Motorola S-Records
 ###   .ihx  - Intel hex format
 ###
+wrBincmd = {
+    'srec': wrBincopy,
+    's19':  wrBincopy,
+    'ihx':  wrBincopy,
+}
+
+#
 def zSave():
     # for now I'll just create a new window with a text box, inside
     # the text box I'll have the path and the filename. Then when
@@ -467,6 +474,13 @@ def zSave():
 ###
 ### Read a file
 ###
+rdBincmd = {
+    'srec': rdBincopy,
+    's19':  rdBincopy,
+    'ihx':  rfBincopy,
+}
+
+#
 def zLoad():
     global directory, filename
     # for now I'll just create a new window with a text box, inside the text box
@@ -475,13 +489,49 @@ def zLoad():
     # bincopy where the memory is offset from zero.
     zMenu.addstr(mboxHt-2, 2, "Status: zLoad")
     # Load a file into an array
-    (fullFileName, directory, filename) = fileTextbox(directory, filename)
-    # Once we're here we need to get the extension
+    (fullFileName, directory, filename. ext) = fileTextbox(directory, filename)
     zInfoStuff(zInfo)
     zRefresh()
+
+    # Now that we have everything we need to get the file
+    if(rdBincmd.__contains__(name)):
+        rdBincmd[name](fullFileName)
+    else:
+        rdBincmd[name](fullFileName)
+    #
+    zMenu.refresh()
+    zMenu.getkey()
+#
+
+    #
     pass
 #
 
+#
+def rdBincopy(fname):
+    zMenu.addstr(mboxHt-2, 2, "Status: rdBincopy(%s)" % fname)
+    pass
+#
+
+#
+def wrBincopy(fname):
+    zMenu.addstr(mboxHt-2, 2, "Status: wrBincopy(%s)" % fname)
+    pass
+#
+
+#
+def rdBinfile(fname):
+    zMenu.addstr(mboxHt-2, 2, "Status: rdBinfile(%s)" % fname)
+    pass
+#
+
+#
+def wrBinfile(fname):
+    zMenu.addstr(mboxHt-2, 2, "Status: wrBinfile(%s)" % fname)
+    pass
+#
+
+#
 def zInfoStuff(scr):
     ###
     ### Info window
@@ -797,12 +847,14 @@ def fileTextbox(dName, fName):
     # hey, what do we do if we don't get anything back?
     try:
         dName, fName = text.rsplit('/', 1)
+        dummy, ext   = text.rsplit('.', 1)
     except: # ValueError
         # temp, I need to restore to the original values
         dName = "/path/to"
         fName = "dummy"
+        ext   = '.bin'
     #
-    return text, dName, fName
+    return text, dName, fName, '.' + ext
 
 #
 zCmds = {
