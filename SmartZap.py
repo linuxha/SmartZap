@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-VERSION = "0.2.15 py"
+VERSION = "0.2.16 py"
 
 from configparser import SafeConfigParser
 
@@ -360,6 +360,74 @@ def zVerify():
     pass
 #
 
+# =[ @FIXME: Error checking ]===================================================
+# Wow, I really need to work on error checking for these read and write routines
+# at the moment they have none
+# ==============================================================================
+
+#
+def rdBincopy(fname):
+    zMenu.addstr(mboxHt-2, 2, "Status: rdBincopy(%s)" % fname)
+    pass
+#
+
+#
+def wrBincopy(fname):
+    zMenu.addstr(mboxHt-2, 2, "Status: wrBincopy(%s)" % fname)
+
+    ###
+    ### WIP (Work In Progress)
+    ###
+    ba = bytearray(stow[beginT:endT]) # Limit the Array to the Current PROM Size
+    bcObj = bincopy.BinFile()
+    bcObj.add_binary(ba)        # We need to tell bincopy x thru y
+    
+    w = open(filename, 'w')        # write to the file outfile.ihx
+    dummy, ext = fname.rsplit('.', 1)
+
+    if(ext == 'ihx'):
+        print(bcObj.as_srec(), file=w)    # write the Intel hex to the file outfile.ihx as w
+    elif(ext == 'srec' or ext == 's19') :
+        print(bcObj.as_ihex(), file=w)    # write the Intel hex to the file outfile.ihx as w
+    elif(ext == 'hex') :
+        print(bcObj.as_hexdump(), file=w) # write the Intel hex to the file outfile.ihx as w
+    elif(ext == 'bin') :
+        print(bcObj.as_binary(), file=w)  # write the Intel hex to the file outfile.ihx as w
+    else :
+        print(bcObj.as_binary(), file=w)  # write the Intel hex to the file outfile.ihx as w
+    #
+    w.close()                      # close the file object w
+    #
+
+    pass
+#
+
+#
+def rdBinfile(fname):
+    zMenu.addstr(mboxHt-2, 2, "Status: rdBinfile(%s)" % fname)
+    pass
+#
+
+#
+def wrBinfile(fname):
+    zMenu.addstr(mboxHt-2, 2, "Status: wrBinfile(%s)" % fname)
+
+    ###
+    ### WIP (Work In Progress)
+    ###
+    ba = bytearray(stow[beginT:endT]) # Limit the Array to the Current PROM Size
+    #bcObj = bincopy.BinFile()
+    #bcObj.add_binary(ba)             # We need to tell bincopy x thru y
+    
+    w = open(filename, 'wb')          # write to the file outfile.ihx
+    # TypeError: must be str, not bytearray
+    w.write(ba)
+    w.close()                         # close the file object w
+    #
+
+    pass
+#
+
 #
 ###
 ### Write to the file
@@ -417,30 +485,34 @@ Add given data at given address. Set overwrite to True to allow already added da
 ###   .ihx  - Intel hex format
 ###
 wrBincmd = {
-    'srec': wrBincopy,
-    's19':  wrBincopy,
-    'ihx':  wrBincopy,
+    '.srec': wrBincopy,
+    '.s19':  wrBincopy,
+    '.ihx':  wrBincopy
 }
 
 #
 def zSave():
+    global directory, filename
     # for now I'll just create a new window with a text box, inside
     # the text box I'll have the path and the filename. Then when
     # that's selected we can either do a normal write or a print of
     # bincopy. I'm not sure how I'll handle a bincopy where the memory
     # is offset from zero.
     zMenu.addstr(mboxHt-2, 2, "Status: zSave")
-    ###
-    ### WIP (Work In Progress)
-    ###
-    ba = bytearray(stow[beginT:endT]) # Limit the Array to the Current PROM Size
-    bcObj = bincopy.BinFile()
-    bcObj.add_binary(ba)        # We need to tell bincopy x thru y
-    
-    w = open(filename, 'w')        # write to the file outfile.ihx
-    print(bcObj.as_ihex(), file=w) # write the Intel hex to the file outfile.ihx as w
-    w.close()                      # close the file object w
+
+    (fullFileName, directory, filename, ext) = fileTextbox(directory, filename)
+    zInfoStuff(zInfo)
+    zRefresh()
+
+    # Now that we have everything we need to get the file
+    if(wrBincmd.__contains__(ext)):
+        wrBincmd[ext](fullFileName)
+    else:
+        wrBinfile(fullFileName)
     #
+    zMenu.refresh()
+    # Save
+    #zMenu.getkey()
 #
 
 #
@@ -475,9 +547,9 @@ def zSave():
 ### Read a file
 ###
 rdBincmd = {
-    'srec': rdBincopy,
-    's19':  rdBincopy,
-    'ihx':  rfBincopy,
+    '.srec': rdBincopy,
+    '.s19':  rdBincopy,
+    '.ihx':  rdBincopy
 }
 
 #
@@ -489,45 +561,22 @@ def zLoad():
     # bincopy where the memory is offset from zero.
     zMenu.addstr(mboxHt-2, 2, "Status: zLoad")
     # Load a file into an array
-    (fullFileName, directory, filename. ext) = fileTextbox(directory, filename)
+    (fullFileName, directory, filename, ext) = fileTextbox(directory, filename)
     zInfoStuff(zInfo)
     zRefresh()
 
     # Now that we have everything we need to get the file
-    if(rdBincmd.__contains__(name)):
-        rdBincmd[name](fullFileName)
+    if(rdBincmd.__contains__(ext)):
+        rdBincmd[ext](fullFileName)
     else:
-        rdBincmd[name](fullFileName)
+        rdBinfile(fullFileName)
     #
     zMenu.refresh()
-    zMenu.getkey()
-#
+    # Load
+    #zMenu.getkey()
+    #
 
     #
-    pass
-#
-
-#
-def rdBincopy(fname):
-    zMenu.addstr(mboxHt-2, 2, "Status: rdBincopy(%s)" % fname)
-    pass
-#
-
-#
-def wrBincopy(fname):
-    zMenu.addstr(mboxHt-2, 2, "Status: wrBincopy(%s)" % fname)
-    pass
-#
-
-#
-def rdBinfile(fname):
-    zMenu.addstr(mboxHt-2, 2, "Status: rdBinfile(%s)" % fname)
-    pass
-#
-
-#
-def wrBinfile(fname):
-    zMenu.addstr(mboxHt-2, 2, "Status: wrBinfile(%s)" % fname)
     pass
 #
 
@@ -841,20 +890,22 @@ def fileTextbox(dName, fName):
                       deco="underline",
                       textColorpair=curses.color_pair(0),
                       decoColorpair=curses.color_pair(1))
-    text = foo.edit()
+    text = foo.edit().strip()
     del foo, xwin
     zRefresh()
     # hey, what do we do if we don't get anything back?
     try:
         dName, fName = text.rsplit('/', 1)
         dummy, ext   = text.rsplit('.', 1)
+        ext = '.' + ext
     except: # ValueError
         # temp, I need to restore to the original values
         dName = "/path/to"
         fName = "dummy"
         ext   = '.bin'
     #
-    return text, dName, fName, '.' + ext
+    return(text, dName, fName, ext)
+#
 
 #
 zCmds = {
