@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-VERSION = "0.2.16 py"
+VERSION = "0.2.17 py"
 
 from configparser import SafeConfigParser
 
@@ -402,9 +402,29 @@ def wrBincopy(fname):
     pass
 #
 
+"""
+>>> filename = 'junk.bin'
+>>> r = open(filename, 'rb')          # write to the file outfile.ihx
+>>> stow = r.read()
+>>> r.close()                         # close the file object w
+>>> len(stow)
+8191
+>>> type(stow)
+<class 'bytes'>
+>>> stow[0]
+255
+>>> type(stow[0])
+<class 'int'>
+>>> 
+"""
 #
 def rdBinfile(fname):
+    global stow
     zMenu.addstr(mboxHt-2, 2, "Status: rdBinfile(%s)" % fname)
+    r = open(filename, 'rb')          # write to the file outfile.ihx
+    # TypeError: must be str, not bytearray
+    stow = r.read()
+    r.close()                         # close the file object w
     pass
 #
 
