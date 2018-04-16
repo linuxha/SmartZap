@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-VERSION = "0.2.17 py"
+VERSION = "0.2.19 py"
 
 from configparser import SafeConfigParser
 
@@ -25,6 +25,18 @@ import bincopy                  # Hex related 'stuff'
 # The function of this program is to facilitate taking binary or hex files and
 # writing them to an EPROM and reading an EPROM and writing them to binary or
 # hex files.
+#
+# 20180409 - Did a little clean up on the main menu
+# Still need to do:
+#   Zap
+#   Verify Erase
+#   Verify memory
+#   Fill
+#   Edit (only partially complete)
+#   Directory <- This needs to be made File < Move to Load/Save ?
+#   Change module (partial done, need timing changes)
+#   Clean EEPROM
+#   
 # ------------------------------------------------------------------------------
 
 #
@@ -78,23 +90,39 @@ else:
     devicename = config['SmartZap']['device']
 #
 
+# Check for the device
+if(os.path.isfile(devicename) == False):
+    print("Device not found: %s" % devicename, file=sys.stderr)
+    #exit(2)
+#
 
 # ------------------------------------------------------------------------------
 # configure the serial connections
-ser = serial.Serial(
-    port     = devicename,
-    baudrate = 9600,
-    parity   = serial.PARITY_NONE,
-    stopbits = serial.STOPBITS_ONE,
-    bytesize = serial.EIGHTBITS,
-    timeout  = 0.250
-)
+try:
+    ser = serial.Serial( port = devicename, baudrate = 9600, parity = serial.PARITY_NONE, stopbits = serial.STOPBITS_ONE, bytesize = serial.EIGHTBITS, timeout  = 0.250 )
+except Exception as err:
+    # FileNotFoundError actually ...
+    # class 'serial.serialutil.SerialException (so serialutil.SerialException ?)
+    # Okay what do we do here?
+
+    print("=[ traceback ]==================================================================", file=sys.stderr)
+    # https://docs.python.org/3/library/traceback.html
+    # search for lumberjack()
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    formatted_lines = traceback.format_exc().splitlines()
+
+    print(formatted_lines[-1], file=sys.stderr)
+    print("*** tb_lineno:", exc_traceback.tb_lineno, file=sys.stderr)
+    #print("*** ext_type:", exc_type, file=sys.stderr)
+    print("=[ Oof ]========================================================================", file=sys.stderr)
+    exit(1)
+#
 
 ###
-### Python Serial supports RFC2217 - Telnet Com Port Control Option
-### I think I have at least one device that supports this but I also
-### the Digi EL162 (remote network serial ports as opposed to a terminal
-### server).
+### Python Serial supports RFC2217 - Telnet Com Port Control Option I
+### think I have at least one device that supports this but I also
+### have the Digi EL162 (remote network serial ports as opposed to a
+### terminal server).
 ###
 
 # '1' != 0x31 (str != int)
@@ -219,10 +247,46 @@ zModuleID()                     #  get the Module info
 # ------------------------------------------------------------------------------
 def zZap():
     zMenu.addstr(mboxHt-2, 2, "Status: zZap")
+    #
     pass
 #
 
 #
+def zSetup():
+    """
+    Timing changes:
+    Send 0xF9 (249) then the start address high byte, the start address low,
+    the end address high, and then the end address low. The setup change can be
+    used for zapping, verifying, or uploading from one location thru all locations.
+
+    Need to get the default values from the source code (probably the Module's
+    address settings ;-)
+    """
+    pass
+#
+
+#
+def zTiming():
+    """
+    Timing changes:
+    Send 0xFA (250) then the overzap byte (oz), the loopmax byte (lm), the
+    delay time high byte, & then low byte.
+
+    The overzap byte is used in the fast zapping mode (dip sw 2=on). Overzap
+    pulse equals the overzap byte times the loop count. The loop max is the
+    number of times the program will try to zap a location. Overzap byte and
+    loop max bytes are standard Intel designations, set to that unless changed.
+    The delay time bytes are a value used to generate the 1 millisecond delay
+    when zapping, it is normally set to 0x0133 (307) but can be made smaller if
+    necessary.
+
+    Need to get the default values from the source code
+    """
+    oz=0x0                      # Check asm source for defaults
+    lm=0x0133                   # 
+    pass
+#
+
 def zDialog():
     l = 6
     w = 34
@@ -345,7 +409,7 @@ def zUpload():
         traceback.print_tb(exc_traceback, file=sys.stderr)
         print("EXC", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
-        exit()
+        exit(1)
     #
     zRefresh()
 #
@@ -1064,21 +1128,24 @@ while(r != 'x'):
 
     line += 1
     zMenu.addstr(line, 40, "X) Exit")
-    #zMenu.addstr(line, 80, "Y) y-Options")
 
-    line += 1
-    zMenu.addstr(line, 40, "X) x-Options")
+    """
     zMenu.addstr(line, 80, "Y) y-Options")
 
     line += 1
     zMenu.addstr(line, 40, "X) x-Options")
     zMenu.addstr(line, 80, "Y) y-Options")
+
+    line += 1
+    zMenu.addstr(line, 40, "X) x-Options")
+    zMenu.addstr(line, 80, "Y) y-Options")
+    """
 
     zMenu.refresh()
 
-    y = int(mboxHt * 0.75)
-    x = int(mboxWd/2) - 9
-    zMenu.addstr(y, x, "Prompt:  ")
+    y = int(mboxHt * 0.50)
+    x = int(mboxWd/2) - 29
+    zMenu.addstr(y, 40, "Prompt:  ")
     #r = zMenu.getch()
     r = zMenu.getkey()
     k = ord(r)
