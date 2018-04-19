@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-VERSION = "0.2.19 py"
+VERSION = "0.2.20 py"
 
 from configparser import SafeConfigParser
 
@@ -8,7 +8,7 @@ import curses
 import curses.textpad
 import serial
 import signal
-
+import subprocess
 import sys,os,time
 import traceback
 
@@ -233,6 +233,25 @@ ser.isOpen()
 
 # Device Check
 print("Device check ...", file=sys.stderr, end='', flush=True)
+
+foo = sendEcho(0xff)
+print("0x%02x" % foo)
+while(foo != 0xff):
+    # Has curses started at this point?
+    print(" failed, check for power and connectivity", file=sys.stderr)
+    # Hit any key to continue, X to exit
+    tInput = input("X to exit: ").lower()
+    if(tInput == 'x'):
+        myExit()
+    elif(tInput == 's'):
+        print("Skipped")
+        foo = 0xff              # Liar! ;-)
+    else:
+        foo = sendEcho(0xff)
+        print("0x%02x" % foo)
+    #
+#
+"""    
 while(sendEcho(0xff) != 0xff):
     # Has curses started at this point?
     print(" failed, check for power and connectivity", file=sys.stderr)
@@ -241,10 +260,18 @@ while(sendEcho(0xff) != 0xff):
         myExit()
     #
 #
+"""
 print(" passed", file=sys.stderr)
 zModuleID()                     #  get the Module info
 
 # ------------------------------------------------------------------------------
+# This should do proper file checking and bug the user until they get it right
+def checkFile(nom):
+    # For now, just pass it back
+    # Need to do some checking
+    return nom
+#
+
 def zZap():
     zMenu.addstr(mboxHt-2, 2, "Status: zZap")
     #
@@ -431,8 +458,9 @@ def zVerify():
 
 #
 def rdBincopy(fname):
+    global stow
     zMenu.addstr(mboxHt-2, 2, "Status: rdBincopy(%s)" % fname)
-    pass
+    stow = bincopy.BinFile(fname)
 #
 
 #
@@ -445,8 +473,10 @@ def wrBincopy(fname):
     ba = bytearray(stow[beginT:endT]) # Limit the Array to the Current PROM Size
     bcObj = bincopy.BinFile()
     bcObj.add_binary(ba)        # We need to tell bincopy x thru y
-    
-    w = open(filename, 'w')        # write to the file outfile.ihx
+
+    # needs full path and filename
+    fnom = checkFile(fname)
+    w = open(fnom, 'w')        # write to the file outfile.ihx
     dummy, ext = fname.rsplit('.', 1)
 
     if(ext == 'ihx'):
@@ -503,7 +533,9 @@ def wrBinfile(fname):
     #bcObj = bincopy.BinFile()
     #bcObj.add_binary(ba)             # We need to tell bincopy x thru y
     
-    w = open(filename, 'wb')          # write to the file outfile.ihx
+    # needs full path and filename
+    fnom = checkFile(fname)
+    w = open(fnom, 'wb')          # write to the file outfile.ihx
     # TypeError: must be str, not bytearray
     w.write(ba)
     w.close()                         # close the file object w
@@ -689,7 +721,9 @@ def zFile():
 
 #
 def zFill():
+    global stow
     zMenu.addstr(mboxHt-2, 2, "Status: zFill")
+    stow       = [ 0xff ] * 64 * 1024 # 64K - 27512
     pass
 #
 
@@ -735,8 +769,14 @@ def zEdit():
     offset = 0
     addr   = 0
 
+    stowLen = len(stow)
     pages = int(promSize/256)
     while(offset < promSize):
+        if(addr >= stowLen):
+            zRefresh()
+            offset = promSize+1
+            break
+        #
         tLine = line
         # 16 bytes by 16 lines, 256 bytes/screen
         for x in range(16):
@@ -832,23 +872,87 @@ def zInformation():
 #
 
 def zChange():
-    zMenu.addstr(mboxHt-2, 2, "Status: zChange")
+    zMenu.addstr(mboxHt-2, 2, "Status: zChange     ")
     pass
+#
+def getStartEnd():
+    global beginT, endT
+    #                           25
+    #  0       8      15          27
+    #  +--------------------------+
+    #  | Start End: [ 0000 ffff ] |
+    #  +--------------------------+
+    l = 6
+    w = 30
+    # Center the box
+    global xMid, yMid
+    xPos = xMid - int(w/2)
+    yPos = yMid - int((l+2)/2) - 1
+    xwin = curses.newwin(l, w, yPos, xPos)
+    xwin.box(0, 0)
+    xwin.addstr(0, 7, "[ Start/End ]", curses.color_pair(1))
+    xwin.addstr(2, 2, "Start End: ")
+    xwin.refresh()
+
+    foo = maketextbox(stdscr,
+                      1, w-9,
+                      yPos+2, xPos+8,
+                      "%04x %04x" % (beginT, endT),
+                      deco="underline",
+                      textColorpair=curses.color_pair(0),
+                      decoColorpair=curses.color_pair(1))
+    text = foo.edit().strip()
+    del foo, xwin
+    zRefresh()
+
+    startT = 0
+    endT   = 0xffff
+    # hey, what do we do if we don't get anything back?
+    try:
+        startT, endT = text.split(' ')
+        # Now it's text, convert it to an int
+        startT = int(start, 16)
+        endT   = int(start, 16)
+    except: # ValueError
+        print("Ooops: <%s>" % text)
+        return 0, 0xffff
+    #
+
+    return startT, endT
+#
+
+def zTools():
+    global beginT, endT, promSize
+    zMenu.addstr(mboxHt-2, 2, "Status: zTools     ")
+    beginT, endT = getStartEnd()
+    promSize = endT + 1
+    #zInfo.touchwin()
+    #zInfo.refresh()
+    zInfoStuff(zInfo)
+    zRefresh()
+    #print("Begin: %s\nEnd:  %s\nSize:  %s" % (type(beginT), type(endT), type(promSize)))
+    #print("Begin: 0x%04x\nEnd:  0x%04x\nSize:  %d" % (beginT, endT, promSize))
 #
 
 def zCleanEE():
-    zMenu.addstr(mboxHt-2, 2, "Status: zCleanup")
+    zMenu.addstr(mboxHt-2, 2, "Status: zCleanup   ")
     pass
 #
 
 def zExit():
-    zMenu.addstr(mboxHt-2, 2, "Status: zExit")
+    zMenu.addstr(mboxHt-2, 2, "Status: zExit      ")
     stdscr.clear()
     stdscr.refresh()
     curses.echo()
     stdscr.keypad(False)
     curses.endwin()
     myExit()
+#
+
+def zClear():
+    subprocess.Popen(['tput', 'clear'])
+    zRefresh()
+    zMenu.addstr(mboxHt-2, 2, "Status: zClear                      ")
 #
 
 def zRefresh():
@@ -892,7 +996,7 @@ def zWait():
         #   invisible,   (0)
         #   normal,      (1)
         #   very visible (2)
-        wait.curs_set(1)
+        wait.curs_set(0)
     except:
         pass # Don't blow up if you can't do this
     #
@@ -909,7 +1013,7 @@ def zWait():
     slen = len(s)
     mid  = int((w-slen)/2)
     try:
-        wait.curs_set(2)
+        wait.curs_set(1)
     except:
         pass # Don't blow up if you can't do this
     #
@@ -1007,6 +1111,7 @@ zCmds = {
     'a':  zCleanEE,
     'x':  zExit,
     '1':  zWait,
+    't':  zTools,
     0x0C: zRefresh
 }
 
@@ -1128,6 +1233,7 @@ while(r != 'x'):
 
     line += 1
     zMenu.addstr(line, 40, "X) Exit")
+    zMenu.addstr(line, 80, "T) Tools")
 
     """
     zMenu.addstr(line, 80, "Y) y-Options")
