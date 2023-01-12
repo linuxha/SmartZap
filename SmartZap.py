@@ -1,19 +1,24 @@
 #!/usr/bin/python3
 
-VERSION = "0.2.20 py"
+VERSION = "0.2.23 py"
 
-from configparser import SafeConfigParser
+#from configparser import SafeConfigParser
+from configparser import ConfigParser
 
-import curses
-import curses.textpad
+import curses                   # Normal curses
+import curses.textpad           # Textpad (do I still need this?)
+import npyscreen                # Handles forms and directories
+
 import serial
 import signal
 import subprocess
-import sys,os,time
+import sys, os, time
 import traceback
 
+import asyncio
+
 #
-import bincopy                  # Hex related 'stuff'
+import bincopy                  # Intel & Motoroal Hex related 'stuff'
 
 # -[ Notes ]--------------------------------------------------------------------
 # I've tried to keep this simple. Basically following along with the simple menu
@@ -25,6 +30,23 @@ import bincopy                  # Hex related 'stuff'
 # The function of this program is to facilitate taking binary or hex files and
 # writing them to an EPROM and reading an EPROM and writing them to binary or
 # hex files.
+#
+# 20220110 - I now have a TL866II+ which works great for programming devices up
+# to 18v but fails at +21v so no 2716, 2732, some 2764s. So now I need to
+# resurrect this burner so I can read the older 2708 and TI TMS2716 +5/+12v
+# eproms. Wow this is poorlt written.
+#
+# 20180425 - I haven't done much work lately but I've pretty much determined
+# that I need to start adding error checking when I create windows and add text.
+# I think most functions return null on error. Also I've been experitmenting
+# with menus and such. Not sure that menus works as well as I'd like but
+# npyscreen does a nice job of things like forms (multi-line, multi-input) and
+# directories. I haven't been able to find a 'simple' way of creating a thread
+# for things like the spinner when load/save with a file.
+#
+# 20180419 - Need to move the load and save into File so I can add other file
+# handling routines. Need to work on the multi-textpad for tools (env/burner
+# manipulation)
 #
 # 20180409 - Did a little clean up on the main menu
 # Still need to do:
@@ -77,7 +99,8 @@ cfgFile    = "dot.SmartZap.ini"
 #onfig = configparser.ConfigParser()
 # use SafeConfigParser to turn %(HOME)s into /home/njc
 # ${HOME} == %(HOME)s the s means return a string
-config = SafeConfigParser(os.environ)
+#config = SafeConfigParser(os.environ)
+config = ConfigParser(os.environ)
 config.read(cfgFile)
 
 filename  = config['SmartZap']['filename']
@@ -91,7 +114,8 @@ else:
 #
 
 # Check for the device
-if(os.path.isfile(devicename) == False):
+#if(os.path.isfile(devicename) == False):
+if(os.path.exists(devicename) == False):
     print("Device not found: %s" % devicename, file=sys.stderr)
     #exit(2)
 #
@@ -111,11 +135,13 @@ except Exception as err:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     formatted_lines = traceback.format_exc().splitlines()
 
-    print(formatted_lines[-1], file=sys.stderr)
+    # .replace(": [", ":\n\t[") makes it more readable
+    #print(formatted_lines[-1], file=sys.stderr)
+    print(formatted_lines[-1].replace(": [", ":\n\t["), file=sys.stderr)
     print("*** tb_lineno:", exc_traceback.tb_lineno, file=sys.stderr)
     #print("*** ext_type:", exc_type, file=sys.stderr)
     print("=[ Oof ]========================================================================", file=sys.stderr)
-    exit(1)
+    #exit(1)
 #
 
 ###
@@ -170,9 +196,8 @@ b'1234\x01\x02\x03\x04 \x08'
 49
 >>> 
 
-""
-
 """
+
 #
 # Write int to bytes
 #
@@ -292,6 +317,11 @@ def zSetup():
     pass
 #
 
+# Status window
+def zStatus():
+    pass
+#
+
 #
 def zTiming():
     """
@@ -343,7 +373,11 @@ def zDialog():
     #
 #
 
-#
+# 20201018 - I'll need threads to do this
+# one thread for the spinner (needs to know the file size and how much has been
+# read)
+# the other (main) thread does the download and tells spinner the file size and
+# how much has been read so far
 def spinner():
     """
     # Shell script version
@@ -617,7 +651,7 @@ def zSave():
     zMenu.addstr(mboxHt-2, 2, "Status: zSave")
 
     (fullFileName, directory, filename, ext) = fileTextbox(directory, filename)
-    zInfoStuff(zInfo)
+    zInfoWin(zInfo)
     zRefresh()
 
     # Now that we have everything we need to get the file
@@ -678,7 +712,7 @@ def zLoad():
     zMenu.addstr(mboxHt-2, 2, "Status: zLoad")
     # Load a file into an array
     (fullFileName, directory, filename, ext) = fileTextbox(directory, filename)
-    zInfoStuff(zInfo)
+    zInfoWin(zInfo)
     zRefresh()
 
     # Now that we have everything we need to get the file
@@ -697,7 +731,7 @@ def zLoad():
 #
 
 #
-def zInfoStuff(scr):
+def zInfoWin(scr):
     ###
     ### Info window
     ###
@@ -715,6 +749,13 @@ def zInfoStuff(scr):
 
 #
 def zFile():
+    """
+    File handling
+    Load
+    Save
+    Append
+    split/delete
+    """
     zMenu.addstr(mboxHt-2, 2, "Status: zFile")
     pass
 #
@@ -908,11 +949,12 @@ def getStartEnd():
     startT = 0
     endT   = 0xffff
     # hey, what do we do if we don't get anything back?
+    
     try:
         startT, endT = text.split(' ')
         # Now it's text, convert it to an int
-        startT = int(start, 16)
-        endT   = int(start, 16)
+        startT = int(startT, 16)
+        endT   = int(endT, 16)
     except: # ValueError
         print("Ooops: <%s>" % text)
         return 0, 0xffff
@@ -928,7 +970,7 @@ def zTools():
     promSize = endT + 1
     #zInfo.touchwin()
     #zInfo.refresh()
-    zInfoStuff(zInfo)
+    zInfoWin(zInfo)
     zRefresh()
     #print("Begin: %s\nEnd:  %s\nSize:  %s" % (type(beginT), type(endT), type(promSize)))
     #print("Begin: 0x%04x\nEnd:  0x%04x\nSize:  %d" % (beginT, endT, promSize))
@@ -1130,6 +1172,10 @@ stdscr.keypad(True)
 curses.start_color()
 curses.noecho()
 
+# The init_pair(n, f, b) function changes the definition of color pair n, to
+# foreground color f and background color b.
+#
+# Color pair 0 is hard-wired to white on black, and cannot be changed.
 #
 curses.init_pair(1, curses.COLOR_YELLOW, curses.COLOR_BLACK)
 curses.init_pair(2, curses.COLOR_BLUE, curses.COLOR_BLACK)
@@ -1168,41 +1214,36 @@ stdscr.addstr(0, (xMid-6), "[ SmartZap ]", curses.color_pair(3))
 
 # ------------------------------------------------------------------------------
 # Title box, this needs to be an odd size
-myTitle = curses.newwin(5, (XMax-2-2), 1, 2)
+myTitle = curses.newwin(5, (XMax-2), 1, 1)
 myTitle.box(0,0)
 
 slen = int(len(title)/2)
 myTitle.addstr(2, (xMid-1-slen), title)
 
-#stdscr.touchwin()
-#stdscr.refresh()
-
-#myTitle.touchwin()
-#myTitle.refresh()
 # ------------------------------------------------------------------------------
 # Info box, this needs to be an odd size
-zInfo = curses.newwin(7, (XMax-2-2), 6, 2)
+zInfo = curses.newwin(7, (XMax-2), 6, 1)
 zInfo.box(0,0)
-#zInfo.touchwin()
-
-zInfoStuff(zInfo)
-#zInfo.refresh()                 # If you update multiple things
-#stdscr.refresh()                # Also update stdscr
+zInfoWin(zInfo)
 
 # -[ Menu ]---------------------------------------------------------------------
 # Menu box, this needs to be an odd size
 ###
-### menu window
+### menu window 9+4 x XMax-2-2
 ###
-mboxHt = (YMax-7-5-2)
-mboxWd = (XMax-2-2)
-zMenu = curses.newwin(mboxHt, mboxWd, 13, 2)
+#mboxHt = (YMax-7-5-2)
+mboxHt = 13
+mboxWd = (XMax-2)
+# locX = 2
+# locY = 13 # ZinfoWinY (7) + myTitleY (5) + 1
+zMenu = curses.newwin(mboxHt, mboxWd, 13, 1)
 zMenu.box(0,0)
 #zMenu.touchwin()
 
 zRefresh()
 
 r = ''
+# -[ Main loop ]----------------------------------------------------------------
 while(r != 'x'):
     line = 2
     zMenu.addstr(line, 40, "Z) Zap from memory")
@@ -1249,19 +1290,23 @@ while(r != 'x'):
 
     zMenu.refresh()
 
-    y = int(mboxHt * 0.50)
-    x = int(mboxWd/2) - 29
-    zMenu.addstr(y, 40, "Prompt:  ")
+    #y = int(mboxHt * 0.50)
+    #x = int(mboxWd/2) - 29
+    #zMenu.addstr(y, 40, "Prompt:  ")
+    line += 2 # this is the Y position
+    x = 40
+    zMenu.addstr(line, x, "Prompt:  ")
     #r = zMenu.getch()
     r = zMenu.getkey()
     k = ord(r)
     if( k < 0x7f and k > 0x19): # isPrintable(r)
-        zMenu.addstr(y, x+9, "%s [%s]" % (r, r))
+        zMenu.addstr(line, x+9, "%s [%s]" % (r, r))
     #
     zMenu.refresh()
     callMe(r)
+    zMenu.addstr(line, x+9, "       ")
     stdscr.refresh()                # Also update stdscr
-#
+# -[ End while(r != 'x') ]------------------------------------------------------
 # ------------------------------------------------------------------------------
 zExit()                         # I shouldn't reach here but just in case ...
 # -[ fini ]----------------------------------------------------------------------------
@@ -1312,4 +1357,83 @@ zExit()                         # I shouldn't reach here but just in case ...
             return
         #
     #
+
+### Screen
+   0          +          +
+ 0 +---[ title ]---
+ 1 |+---[ title ]---
+ 2 || ... Name version etc. (w/Border - 5)
+ 3 |+---
+ 4 |+---
+ 5 || ... Info (w/Border - 7)
+ 6 |+---
+ 7 |+---
+ 8 || ... Menu (w/Border - 13)
+ 9 |+---
+10 +---
+
+
+### Screen (perhaps no border on Menu?)
+   0          +          +
+ 0 +---[ title ]---
+ 1 |+---[ title ]---
+ 2 || ... Info (w/oBorder - 5)
+ 3 ||
+ 4 || ... Menu (w/Border - 13)
+ 5 ||
+ 6 |+---
+ 7 |+---
+ 8 || ... scrolling Debug & Status (w/oBorder - 6-n-1)
+ 9 |+---
+10 +---
+
+###
+00 lqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq[ SmartZap ]qqqq
+01 xlqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+02 xx                                                                                              
+03 xx                                                 -=<[ SmartZap EPROM Burner Program Version 0.2.22 py - by N.Che
+04 xx
+05 xmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+06 xlqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+07 xx                                                                                                                
+08 xx                   SmartZap            Module ID: 00                           Begin Area for Zap: 0x0000       
+09 xx                                       PROM Size: 0x0001                       End Area for Zap:   0x0000       
+20 xx                                       Filename:  junk.ihx                     Port:               /dev/ttyUSB0 
+01 xx                                                                                                                
+02 xmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+03 xlqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+04 xx                                                                                                                
+05 xx                                       Z) Zap from memory                      U) Upload PROM to memory         
+06 xx                                       E) Verify Erase                         V) Verify from memory            
+07 xx                                       S) Save memory to disk                  L) Load from disk to memory      
+08 xx                                       F) Fill stored data area                P) Edit uploaded string          
+09 xx                                       I) General Information                  D) Directory of /home/njc/dev/git
+30 xx                                       C) Change IO module                     A) Clean EEPROM                  
+01 xx                                       X) Exit                                 T) Tools                         
+02 xx                                                                                                                
+03 xx                                       Prompt:                                                                  
+04 xx Status: zRefresh                                                                                               
+05 xmqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+06 x                                                                                                                 
+07 x                                                                                                                 
+08 x                                                                                                                 
+09 x                                                                                                                 
+40 x                                                                                                                 
+01 x                                                                                                                 
+02 x                                                                                                                 
+03 x                                                                                                                 
+04 x                                                                                                                 
+05 x                                                                                                                 
+06 x                                                                                                                 
+07 x                                                                                                                 
+08 x                                                                                                                 
+09 x                                                                                                                 
+50 x                                                                                                                 
+01 x                                                                                                                 
+02 x                                                                                                                 
+03 x                                                                                                                 
+04 x                                                                                                                 
+05 x                                                                                                                 
+56 mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+
 """
