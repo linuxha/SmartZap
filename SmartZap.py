@@ -719,6 +719,68 @@ def zFill():
     pass
 #
 
+hRIGHT = 8
+hLEFT  = 53
+aRIGHT = 57
+aLEFT  = 72
+
+xUP    = 4
+xDOWN  = 19
+
+def moveRight(edit, mode, y):#
+    if(mode == "ascii"):
+        y += 1
+        if(y > aLEFT): #57+16
+            y = aRIGHT
+        #
+    elif(mode == "hex"):
+        y += 3
+        if(y > hLEFT): # 8 + (16 * 3) - 1
+            y = hRIGHT
+        #
+    else:
+        y += 1
+    #
+    
+    return(y)
+#
+
+# Addr  00 01 02 03 03 05 06 07 08 09 0A 0B 0C 0D 0E 0F  0123456789ABCDEF 
+def moveLeft(edit, mode, y):
+    if(mode == "ascii"):
+        y -= 1
+        if(y < aRIGHT): #57+16
+            y = aLEFT
+        #
+    elif(mode == "hex"):
+        y -= 3
+        if(y < hRIGHT): # 8 + (16 * 3) - 1
+            y = hLEFT
+        #
+    else:
+        y += 1
+    #
+    return(y)
+#
+
+def moveUp(edit, mode, x):
+    x -= 1
+    if(x < xUP):
+        x = xDOWN
+    #
+
+    return(x)
+#
+
+def moveDown(edit, mode, x):
+    x += 1
+    if(x > xDOWN):
+        x = xUP
+    #
+
+    return(x)
+#
+
 def hexEdit(edit):
     l = 23
     # if Hex
@@ -730,7 +792,7 @@ def hexEdit(edit):
     hCol = 8
     aCol = 57
 
-    section = "hex"
+    mode = "hex"
 
     while True:
                 
@@ -742,21 +804,25 @@ def hexEdit(edit):
 
         if(k == curses.KEY_RIGHT):
             edit.addstr(l-1, 16, "RT")
+            y = moveRight(edit, mode, y)
         elif(k == curses.KEY_LEFT):
             edit.addstr(l-1, 16, "LT")
+            y = moveLeft(edit, mode, y)
         elif(k == curses.KEY_DOWN):
             edit.addstr(l-1, 16, "DN")
+            x = moveDown(edit, mode, x)
         elif(k == curses.KEY_UP):
             edit.addstr(l-1, 16, "UP")
+            x = moveUp(edit, mode, x)
         elif(k == 0x1B): # ESC - quit
             break
         elif(k == 0x09):
-            if(section == "ascii"):
+            if(mode == "ascii"):
                 y = hCol
-                section = "hex"
+                mode = "hex"
             else:
                 y = aCol
-                section = "ascii"
+                mode = "ascii"
             #
             continue
         else:
