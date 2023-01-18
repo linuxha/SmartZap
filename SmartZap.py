@@ -2,7 +2,6 @@
 
 VERSION = "0.2.23 py"
 
-#from configparser import SafeConfigParser
 from configparser import ConfigParser
 
 import curses                   # Normal curses
@@ -14,6 +13,7 @@ import signal
 import subprocess
 import sys, os, time
 import traceback
+import string
 
 import asyncio
 
@@ -30,6 +30,10 @@ import bincopy                  # Intel & Motoroal Hex related 'stuff'
 # The function of this program is to facilitate taking binary or hex files and
 # writing them to an EPROM and reading an EPROM and writing them to binary or
 # hex files.
+#
+# 20220113 - Need to create a file object (it lives in memory) and a PROM object
+#            which may be a section of memory (8 bit), even or odd (16 bit) or
+#            quarters (32 bit).
 #
 # 20220110 - I now have a TL866II+ which works great for programming devices up
 # to 18v but fails at +21v so no 2716, 2732, some 2764s. So now I need to
@@ -70,6 +74,15 @@ import bincopy                  # Intel & Motoroal Hex related 'stuff'
 >>> f.info()
 'Data address ranges:\n                         0x0000f800 - 0x00010000\n'
 >>> a = f.as_binary() # byte array
+>>> s = f.as_array()  # string
+>>> type(s)
+<class 'str'>
+# Is strings are mutable or immutable?
+# String is an example of an immutable type.
+>>> stow = [ 0xff ] * 64 * 1024
+>>> type(stow)
+<class 'list'>
+# Lists: Mutable & Dynamic
 ###
 ### Write ihex to a file
 ###
@@ -84,72 +97,6 @@ w.close()                       # close the file object w
 # an error code that's being returned.                                         #
 # Need to add an error window.                                                 #
 # -----------------------------------------------------------------------------#
-moduleID   = 0
-beginT     = 0
-endT       = 0
-promSize   = 0
-# Array of ints
-stow       = [ 0xff ] * 64 * 1024 # 64K - 27512
-
-filename   = "<None>"
-devicename = "</dev/null>"
-directory  = "/tmp/"
-cfgFile    = "dot.SmartZap.ini"
-
-#onfig = configparser.ConfigParser()
-# use SafeConfigParser to turn %(HOME)s into /home/njc
-# ${HOME} == %(HOME)s the s means return a string
-#config = SafeConfigParser(os.environ)
-config = ConfigParser(os.environ)
-config.read(cfgFile)
-
-filename  = config['SmartZap']['filename']
-directory = config['SmartZap']['dir']
-
-# Get the user options
-if(len(sys.argv) == 2) :
-    devicename = sys.argv[1];
-else:
-    devicename = config['SmartZap']['device']
-#
-
-# Check for the device
-#if(os.path.isfile(devicename) == False):
-if(os.path.exists(devicename) == False):
-    print("Device not found: %s" % devicename, file=sys.stderr)
-    #exit(2)
-#
-
-# ------------------------------------------------------------------------------
-# configure the serial connections
-try:
-    ser = serial.Serial( port = devicename, baudrate = 9600, parity = serial.PARITY_NONE, stopbits = serial.STOPBITS_ONE, bytesize = serial.EIGHTBITS, timeout  = 0.250 )
-except Exception as err:
-    # FileNotFoundError actually ...
-    # class 'serial.serialutil.SerialException (so serialutil.SerialException ?)
-    # Okay what do we do here?
-
-    print("=[ traceback ]==================================================================", file=sys.stderr)
-    # https://docs.python.org/3/library/traceback.html
-    # search for lumberjack()
-    exc_type, exc_value, exc_traceback = sys.exc_info()
-    formatted_lines = traceback.format_exc().splitlines()
-
-    # .replace(": [", ":\n\t[") makes it more readable
-    #print(formatted_lines[-1], file=sys.stderr)
-    print(formatted_lines[-1].replace(": [", ":\n\t["), file=sys.stderr)
-    print("*** tb_lineno:", exc_traceback.tb_lineno, file=sys.stderr)
-    #print("*** ext_type:", exc_type, file=sys.stderr)
-    print("=[ Oof ]========================================================================", file=sys.stderr)
-    #exit(1)
-#
-
-###
-### Python Serial supports RFC2217 - Telnet Com Port Control Option I
-### think I have at least one device that supports this but I also
-### have the Digi EL162 (remote network serial ports as opposed to a
-### terminal server).
-###
 
 # '1' != 0x31 (str != int)
 # ba = bytearray(
@@ -253,42 +200,6 @@ def myExit():
     exit(0)
 #
 
-###
-ser.isOpen()
-
-# Device Check
-print("Device check ...", file=sys.stderr, end='', flush=True)
-
-foo = sendEcho(0xff)
-print("0x%02x" % foo)
-while(foo != 0xff):
-    # Has curses started at this point?
-    print(" failed, check for power and connectivity", file=sys.stderr)
-    # Hit any key to continue, X to exit
-    tInput = input("X to exit: ").lower()
-    if(tInput == 'x'):
-        myExit()
-    elif(tInput == 's'):
-        print("Skipped")
-        foo = 0xff              # Liar! ;-)
-    else:
-        foo = sendEcho(0xff)
-        print("0x%02x" % foo)
-    #
-#
-"""    
-while(sendEcho(0xff) != 0xff):
-    # Has curses started at this point?
-    print(" failed, check for power and connectivity", file=sys.stderr)
-    # Hit any key to continue, X to exit
-    if(input("X to exit: ").lower() == 'x'):
-        myExit()
-    #
-#
-"""
-print(" passed", file=sys.stderr)
-zModuleID()                     #  get the Module info
-
 # ------------------------------------------------------------------------------
 # This should do proper file checking and bug the user until they get it right
 def checkFile(nom):
@@ -298,7 +209,7 @@ def checkFile(nom):
 #
 
 def zZap():
-    zMenu.addstr(mboxHt-2, 2, "Status: zZap")
+    zMenu.addstr(mboxHt-2, 2, "Status: zZap ")
     #
     pass
 #
@@ -418,7 +329,7 @@ def zUpload():
     y = int(mboxHt * 0.75)
     x = int(mboxWd/2) - 9
     spinner = [ "-", "\\", "|", "/", "-", "\\", "|", "/" ]
-    zMenu.addstr(mboxHt-2, 2, "Status: zUpload")
+    zMenu.addstr(mboxHt-2, 2, "Status: zUpload ")
 
     # need to get which socket
     # for now it's the Master
@@ -476,12 +387,12 @@ def zUpload():
 #
 
 def zErase():
-    zMenu.addstr(mboxHt-2, 2, "Status: zErase")
+    zMenu.addstr(mboxHt-2, 2, "Status: zErase ")
     pass
 #
 
 def zVerify():
-    zMenu.addstr(mboxHt-2, 2, "Status: zVerify")
+    zMenu.addstr(mboxHt-2, 2, "Status: zVerify ")
     pass
 #
 
@@ -493,13 +404,36 @@ def zVerify():
 #
 def rdBincopy(fname):
     global stow
-    zMenu.addstr(mboxHt-2, 2, "Status: rdBincopy(%s)" % fname)
-    stow = bincopy.BinFile(fname)
+    
+    zMenu.addstr(mboxHt-2, 2, "Status: rdBincopy(%s) " % fname)
+    ###
+    ### @FIXME: Need to catch file errors
+    ###
+    t = bincopy.BinFile(fname)
+    #s = t.info().replace('\n', ' ') # Doesn't like new lines
+    #zMenu.addstr(mboxHt-2, 38, "%s" % s)
+
+    ###
+    ### @FIXME: Doesn't appear to copy t into stow
+    ###
+    # t.minimum_address is the first byte in the record
+    # t.maximum_address is the last byte in the file
+    a = t.minimum_address;
+    z = len(t) + 1 # list slices are not inclusive on the end range
+    stow[a:z] = t  # Temp, I still need to handle offset and this stow is only
+    #              # the size of the file
+    # >>> type(stow)
+    # <class 'list'>
+    # >>> len(stow)
+    # 2048
+    # stow contains the read .bin file @0x0000 and the size of the file
+    # it needs to be added at stow[offset]
+
 #
 
 #
 def wrBincopy(fname):
-    zMenu.addstr(mboxHt-2, 2, "Status: wrBincopy(%s)" % fname)
+    zMenu.addstr(mboxHt-2, 2, "Status: wrBincopy(%s) " % fname)
 
     ###
     ### WIP (Work In Progress)
@@ -548,17 +482,34 @@ def wrBincopy(fname):
 #
 def rdBinfile(fname):
     global stow
-    zMenu.addstr(mboxHt-2, 2, "Status: rdBinfile(%s)" % fname)
-    r = open(filename, 'rb')          # write to the file outfile.ihx
+
+    zMenu.addstr(mboxHt-2, 2, "Status: rdBinfile(%s) " % fname)
+    r = open(fname, 'rb')       # read from the file
     # TypeError: must be str, not bytearray
-    stow = r.read()
-    r.close()                         # close the file object w
-    pass
+    t    = r.read()
+    # >>> t = r.read()
+    # >>> len(t)
+    # 2048
+    # >>> type(t)
+    # <class 'bytes'>
+    #a = Bottom + Offset
+    #z = Bottom + Offset + len(t) + 1 # list slices are not inclusive on the end range
+    a = beginT + offset
+    z = beginT + offset + len(t) + 1 # list slices are not inclusive on the end range
+    stow[a:z] = t # Temp, I still need to handle offset and this stow is only
+    #             # the size of the file
+    # >>> type(stow)
+    # <class 'list'>
+    # >>> len(stow)
+    # 2048
+    # stow contains the read .bin file @0x0000 and the size of the file
+    # it needs to be added at stow[offset]
+    r.close()                   # close the file object w
 #
 
 #
 def wrBinfile(fname):
-    zMenu.addstr(mboxHt-2, 2, "Status: wrBinfile(%s)" % fname)
+    zMenu.addstr(mboxHt-2, 2, "Status: wrBinfile(%s) " % fname)
 
     ###
     ### WIP (Work In Progress)
@@ -648,7 +599,7 @@ def zSave():
     # that's selected we can either do a normal write or a print of
     # bincopy. I'm not sure how I'll handle a bincopy where the memory
     # is offset from zero.
-    zMenu.addstr(mboxHt-2, 2, "Status: zSave")
+    zMenu.addstr(mboxHt-2, 2, "Status: zSave ")
 
     (fullFileName, directory, filename, ext) = fileTextbox(directory, filename)
     zInfoWin(zInfo)
@@ -709,7 +660,7 @@ def zLoad():
     # I'll have the path and the filename. Then when that's selected we can
     # either do a normal read or a bincopy. I'm not sure how I'll handle a
     # bincopy where the memory is offset from zero.
-    zMenu.addstr(mboxHt-2, 2, "Status: zLoad")
+    zMenu.addstr(mboxHt-2, 2, "Status: zLoad ")
     # Load a file into an array
     (fullFileName, directory, filename, ext) = fileTextbox(directory, filename)
     zInfoWin(zInfo)
@@ -737,7 +688,7 @@ def zInfoWin(scr):
     ###
     scr.addstr(2, 20, "SmartZap")
     scr.addstr(2, 40, "Module ID: %02x" % moduleID) # In hex?
-    scr.addstr(2, 80, "Begin Area for Zap: 0x%04x" % beginT)
+    scr.addstr(2, 80, "Begin Area for Zap: 0x%04x (0x%04x)" % (beginT, offset))
 
     scr.addstr(3, 40, "PROM Size: 0x%04x" % promSize)
     scr.addstr(3, 80, "End Area for Zap:   0x%04x" % endT)
@@ -756,23 +707,68 @@ def zFile():
     Append
     split/delete
     """
-    zMenu.addstr(mboxHt-2, 2, "Status: zFile")
+    zMenu.addstr(mboxHt-2, 2, "Status: zFile ")
     pass
 #
 
 #
 def zFill():
     global stow
-    zMenu.addstr(mboxHt-2, 2, "Status: zFill")
+    zMenu.addstr(mboxHt-2, 2, "Status: zFill ")
     stow       = [ 0xff ] * 64 * 1024 # 64K - 27512
     pass
 #
 
+def hexEdit(edit):
+    l = 23
+    # if Hex
+    # Starting offsets: 5 Down, 9 Across
+    # Then xx yy
+    y = 8                       # But this is always the start of Hex
+    x = 4                       # This changes
+
+    hCol = 8
+    aCol = 57
+
+    section = "hex"
+
+    while True:
+                
+        edit.move(x, y)
+
+        curses.noecho()
+        k = edit.getch()
+        curses.echo() # Just a safety for now
+
+        if(k == curses.KEY_RIGHT):
+            edit.addstr(l-1, 16, "RT")
+        elif(k == curses.KEY_LEFT):
+            edit.addstr(l-1, 16, "LT")
+        elif(k == curses.KEY_DOWN):
+            edit.addstr(l-1, 16, "DN")
+        elif(k == curses.KEY_UP):
+            edit.addstr(l-1, 16, "UP")
+        elif(k == 0x1B): # ESC - quit
+            break
+        elif(k == 0x09):
+            if(section == "ascii"):
+                y = hCol
+                section = "hex"
+            else:
+                y = aCol
+                section = "ascii"
+            #
+            continue
+        else:
+            pass
+        #
+        time.sleep(0.1)
+    #
+
 #
-import string
 def xchr(x):
     c = chr(x)
-    #if(c in string.ascii_letters):
+    #
     if((c in string.printable) and (c not in string.whitespace)):
         return c
     else:
@@ -790,7 +786,7 @@ def zEdit():
     # So that would be in the edit mode. Not sure how I'll deal with this yet.
     # For now I'll just keep it simple
     mode = "Print"
-    zMenu.addstr(mboxHt-2, 2, "Status: zEdit")
+    zMenu.addstr(mboxHt-2, 2, "Status: zEdit ")
 
     l = 23
     w = 75
@@ -807,18 +803,32 @@ def zEdit():
     edit.addstr(line, 2, "Addr  00 01 02 03 03 05 06 07 08 09 0A 0B 0C 0D 0E 0F  0123456789ABCDEF")
     line += 1
     edit.addstr(line, 2, "====  ===============================================  ================")
-    offset = 0
-    addr   = 0
+    index = 0
+    addr  = 0
 
     stowLen = len(stow)
-    pages = int(promSize/256)
-    while(offset < promSize):
+    pages   = int(promSize/256)
+
+    ###
+    ### @FIXED: Need to adjust this for 0 - FFFF
+    ### @FIXME: IndexError: list index out of range
+    ###   Traceback (most recent call last):
+    ###   File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 1429, in callMe(r)
+    ###   File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 1193, in callMe zCmds[name]()
+    ###   File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 787, in zEdit v = stow[addr]
+    ###   IndexError: list index out of range
+    ### I have no idea what causes this???
+    ###
+    edit.keypad(True)
+    edit.nodelay(1)
+    while(index < promSize):
         if(addr >= stowLen):
             zRefresh()
-            offset = promSize+1
+            index = promSize+1
             break
         #
         tLine = line
+
         # 16 bytes by 16 lines, 256 bytes/screen
         for x in range(16):
             tLine += 1
@@ -830,14 +840,15 @@ def zEdit():
             for a in range(16):
                 v = stow[addr]
                 addr += 1
-                edit.addstr(tLine,  8+(a*3), "%02x" % v)
-                edit.addstr(tLine, 57+a,     "%s"   % xchr(v))
+                edit.addstr(tLine,  8+(a*3), "%02x" % v)       # Hex 
+                edit.addstr(tLine, 57+a,     "%s"   % xchr(v)) # ASCII (or dot)
             # That's one complete line
             #
         # That's one complete screen
+
         #
-        offset += 256 # 1 page = 256 or 16x16
-        page    = int(offset/256)
+        index += 256 # 1 page = 256 or 16x16
+        page    = int(index/256)
         s = "[ Page: %02d of %0d ]" % (page, pages)
         slen = len(s)
         mid  = int((w-slen)/2)
@@ -847,21 +858,80 @@ def zEdit():
         edit.addstr(tLine, 2, "====  ===============================================  ================")
         edit.addstr(l-1, 8, "Prompt> ")
 
+        curses.noecho()
         k = edit.getch()
-        edit.addstr(l-1, 16, chr(k))
-        if(k == 0x78):
+        curses.echo() # Just a safety for now
+        #edit.addstr(l-1, 16, chr(k))
+
+        if(k == curses.KEY_RIGHT):
+            edit.addstr(l-1, 16, "RT")
+        elif(k == curses.KEY_LEFT):
+            edit.addstr(l-1, 16, "LT")
+        elif(k == curses.KEY_DOWN):
+            edit.addstr(l-1, 16, "DN")
+        elif(k == curses.KEY_UP):
+            edit.addstr(l-1, 16, "UP")
+        elif(k == 0x78): # x - quit
             #del edit
             zRefresh()
-            offset = promSize+1
+            index = promSize+1
             #return
+        elif(k == 0x1B): # ESC - quit
+            edit.addstr(l-1, 16, "0x%04x" % (k))
+            zRefresh()
+            index = promSize+1
+            continue
+        elif(k == 0x71): # q - quit
+            break
+            zRefresh()
+            index = promSize+1
+        elif(k == 0x2D): # - minus - go back 1 page
+            index -= 512
+            addr  -= 512
+        elif(k == 0x65): # e - edit
+            hexEdit(edit)
+        elif(k == 0x67): # g - goto
+            pass
+        elif(k == 0x7F):
+            index -= 512
+            addr  -= 512
+            continue
+        elif(k < 0x7F and k > 0):
+            continue
+        else:
+            if(isinstance(k, str)):
+               edit.addstr(l-1, 16, "0x04x" % k)
+            else:
+                index -= 256
+                addr  -= 256
+            #
+        #
+        """
+        match k:                # Python 3.10 and later
+            case 'x':
+                zRefresh()
+                offset = promSize+1
+            case 0x1B: # ESC
+                zRefresh()
+                offset = promSize+1
+            case '-':
+                index -= 256
+            case 0x7F: # BKSP (okay DEL)
+                index -= 256
+            case _:             # Default
+                pass
+        """
+        time.sleep(0.1)
         #
     # while
+    edit.nodelay(0)
+    edit.keypad(False)
     del edit
     zRefresh()
 #
 
 def zDir():
-    zMenu.addstr(mboxHt-2, 2, "Status: zDir")
+    zMenu.addstr(mboxHt-2, 2, "Status: zDir ")
     pass
 #
 
@@ -884,7 +954,7 @@ textArray = [
 ]
 #
 def zInformation():
-    zMenu.addstr(mboxHt-2, 2, "Status: zInformation")
+    zMenu.addstr(mboxHt-2, 2, "Status: zInformation ")
     ###
     ### 40x20 -for the about window
     ###
@@ -916,30 +986,41 @@ def zChange():
     zMenu.addstr(mboxHt-2, 2, "Status: zChange     ")
     pass
 #
+
+def toInt(i):
+    n = int(i, 16)
+    pass
+#
+
 def getStartEnd():
-    global beginT, endT
-    #                           25
-    #  0       8      15          27
-    #  +--------------------------+
-    #  | Start End: [ 0000 ffff ] |
-    #  +--------------------------+
-    l = 6
-    w = 30
-    # Center the box
+    global beginT, endT, offset
     global xMid, yMid
+
+    zMenu.addstr(mboxHt-2, 38, "                                         ")
+    #                           25
+    #  0       8      15        25     
+    #  +-------------------------------+
+    #  | Start End: [ 0000 ffff 0000 ] |
+    #  +-------------------------------+
+    #                 |            | <-Text box
+    l = 6  #
+    w = 32 # was 30
+    # Center the box
     xPos = xMid - int(w/2)
     yPos = yMid - int((l+2)/2) - 1
     xwin = curses.newwin(l, w, yPos, xPos)
     xwin.box(0, 0)
-    xwin.addstr(0, 7, "[ Start/End ]", curses.color_pair(1))
-    xwin.addstr(2, 2, "Start End: ")
+    xwin.addstr(0, 9, "[ Start/End ]", curses.color_pair(1))
+    xwin.addstr(2, 2, "           Beg  End  Offset")
+    xwin.addstr(3, 2, "Start End: ")
     xwin.refresh()
 
+    # Text box 1 tall and 14+1 wide (otherwise it blows up)
     foo = maketextbox(stdscr,
-                      1, w-9,
-                      yPos+2, xPos+8,
-                      "%04x %04x" % (beginT, endT),
-                      deco="underline",
+                      1, 15,
+                      yPos+3, xPos+13,
+                      "%04x %04x %04x" % (beginT, endT, offset),
+                      deco="none",
                       textColorpair=curses.color_pair(0),
                       decoColorpair=curses.color_pair(1))
     text = foo.edit().strip()
@@ -948,32 +1029,36 @@ def getStartEnd():
 
     startT = 0
     endT   = 0xffff
+    offset = 0
+
     # hey, what do we do if we don't get anything back?
     
     try:
-        startT, endT = text.split(' ')
+        startT, endT, offset = text.split(' ')
         # Now it's text, convert it to an int
+        # @FIXME: We need error checking here
         startT = int(startT, 16)
         endT   = int(endT, 16)
+        offset = int(offset, 16)
     except: # ValueError
-        print("Ooops: <%s>" % text)
-        return 0, 0xffff
+        curses.beep()
+        zMenu.addstr(mboxHt-2, 38, "Ooops: <%s>" % text)
+        return 0, 0, 0
     #
 
-    return startT, endT
+    return startT, endT, offset
 #
 
 def zTools():
-    global beginT, endT, promSize
+    global beginT, endT, promSize, offset
+
     zMenu.addstr(mboxHt-2, 2, "Status: zTools     ")
-    beginT, endT = getStartEnd()
+
+    beginT, endT, offset = getStartEnd()
     promSize = endT + 1
-    #zInfo.touchwin()
-    #zInfo.refresh()
+
     zInfoWin(zInfo)
     zRefresh()
-    #print("Begin: %s\nEnd:  %s\nSize:  %s" % (type(beginT), type(endT), type(promSize)))
-    #print("Begin: 0x%04x\nEnd:  0x%04x\nSize:  %d" % (beginT, endT, promSize))
 #
 
 def zCleanEE():
@@ -1073,14 +1158,14 @@ def zWait():
 # For some reason I get an ACS_HLINE error is I use curses.ACS_HLINE
 # or just ACS_HLINE in the underlineChr
 def maketextbox(screen, h, w, y, x, value="", deco=None, underlineChr="_", textColorpair=0, decoColorpair=0):
-    nw = curses.newwin(h, w, y, x)
-    txtbox = curses.textpad.Textbox(nw, insert_mode=True)
+    nw     = curses.newwin(h, w, y, x)
+    txtbox = curses.textpad.Textbox(nw, insert_mode=False)
 
-    if deco=="frame":
+    if deco == "frame":
         screen.attron(decoColorpair)
         curses.textpad.rectangle(screen,y+1,x,y+h-2,x+w-2)
         screen.attroff(decoColorpair)
-    elif deco=="underline":
+    elif deco == "underline":
         screen.hline(y+1, x, underlineChr, w, decoColorpair)
     #
 
@@ -1167,6 +1252,99 @@ def callMe(name):
 #
 
 # -[ Main() ]-------------------------------------------------------------------
+moduleID   = 0
+beginT     = 0
+endT       = 0
+offset     = 0
+promSize   = 0
+# Array of ints
+stow       = [ 0xff ] * 64 * 1024 # 64K - 27512
+
+filename   = "<None>"
+devicename = "</dev/null>"
+directory  = "/tmp/"
+cfgFile    = "dot.SmartZap.ini"
+
+# use ConfigParser to turn %(HOME)s into /home/njc
+# ${HOME} == %(HOME)s the s means return a string
+config = ConfigParser(os.environ)
+config.read(cfgFile)
+
+filename  = config['SmartZap']['filename']
+directory = config['SmartZap']['dir']
+
+# Get the user options
+if(len(sys.argv) == 2) :
+    devicename = sys.argv[1];
+else:
+    devicename = config['SmartZap']['device']
+#
+
+# Check for the device
+#if(os.path.isfile(devicename) == False):
+if(os.path.exists(devicename) == False):
+    print("Device not found: %s" % devicename, file=sys.stderr)
+    #exit(2)
+#
+
+# ------------------------------------------------------------------------------
+# configure the serial connections
+try:
+    ser = serial.Serial( port = devicename, baudrate = 9600, parity = serial.PARITY_NONE, stopbits = serial.STOPBITS_ONE, bytesize = serial.EIGHTBITS, timeout  = 0.250 )
+except Exception as err:
+    # FileNotFoundError actually ...
+    # class 'serial.serialutil.SerialException (so serialutil.SerialException ?)
+    # Okay what do we do here?
+
+    print("=[ traceback ]==================================================================", file=sys.stderr)
+    # https://docs.python.org/3/library/traceback.html
+    # search for lumberjack()
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    formatted_lines = traceback.format_exc().splitlines()
+
+    # .replace(": [", ":\n\t[") makes it more readable
+    #print(formatted_lines[-1], file=sys.stderr)
+    print(formatted_lines[-1].replace(": [", ":\n\t["), file=sys.stderr)
+    print("*** tb_lineno:", exc_traceback.tb_lineno, file=sys.stderr)
+    #print("*** ext_type:", exc_type, file=sys.stderr)
+    print("=[ Oof ]========================================================================", file=sys.stderr)
+    #exit(1)
+#
+
+###
+### Python Serial supports RFC2217 - Telnet Com Port Control Option I
+### think I have at least one device that supports this but I also
+### have the Digi EL162 (remote network serial ports as opposed to a
+### terminal server).
+###
+
+###
+ser.isOpen()
+
+# Device Check
+print("Device check ...", file=sys.stderr, end='', flush=True)
+
+foo = sendEcho(0xff)
+print("0x%02x" % foo)
+while(foo != 0xff):
+    # Has curses started at this point?
+    print(" failed, check for power and connectivity", file=sys.stderr)
+    # Hit any key to continue, X to exit
+    tInput = input("X to exit: ").lower()
+    if(tInput == 'x'):
+        myExit()
+    elif(tInput == 's'):
+        print("Skipped")
+        foo = 0xff              # Liar! ;-)
+    else:
+        foo = sendEcho(0xff)
+        print("0x%02x" % foo)
+    #
+#
+print(" passed", file=sys.stderr)
+zModuleID()                     #  get the Module info
+
+# ------------------------------------------------------------------------------
 stdscr = curses.initscr()
 stdscr.keypad(True)
 curses.start_color()
@@ -1312,6 +1490,9 @@ zExit()                         # I shouldn't reach here but just in case ...
 # -[ fini ]----------------------------------------------------------------------------
 
 """
+    if c == 8 or c == 127 or c == curses.KEY_BACKSPACE:
+        stdscr.addstr("\b \b")
+    #
                 try:
                 except Exception as err:
                     exc_type, exc_value, exc_traceback = sys.exc_info()
@@ -1435,5 +1616,19 @@ zExit()                         # I shouldn't reach here but just in case ...
 04 x                                                                                                                 
 05 x                                                                                                                 
 56 mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+
+Prompt:  p [p]
+Traceback (most recent call last):
+││ Status: rdBincopy(/home/njc/dev/git/SmartZap/t/lilbug.s19)
+File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 1296, in <module>
+if( k < 0x7f and k > 0x19): # isPrintable(r)
+File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 1061, in callMe
+File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 729, in zEdit
+edit.addstr(tLine, 2, "%04X" % addr)
+File "/usr/local/lib/python3.9/dist-packages/bincopy.py", line 730, in __getitem__
+raise IndexError(f'binary file index {key} out of range')
+IndexError: binary file index 0 out of range
+
+njc@mozart:~/dev/git/SmartZap$ 
 
 """
