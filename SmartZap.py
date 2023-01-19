@@ -781,7 +781,8 @@ def moveDown(edit, mode, x):
     return(x)
 #
 
-def hexEdit(edit):
+# Addr has been corrected so it's the current address of the stow variable
+def hexEdit(edit, addr):
     l = 23
     # if Hex
     # Starting offsets: 5 Down, 9 Across
@@ -794,28 +795,32 @@ def hexEdit(edit):
 
     mode = "hex"
 
-    while True:
+    flag = True
+    while flag:
                 
         edit.move(x, y)
 
         curses.noecho()
+        # main menu uses n_win.getkey()
         k = edit.getch()
         curses.echo() # Just a safety for now
 
-        if(k == curses.KEY_RIGHT):
-            edit.addstr(l-1, 16, "RT")
+        if(k == 0x1B or k == 0x78 or k == 0x71 or k == 0x58 or k == 0x51): # ESC - quit
+            flag = False
+            time.sleep(0.1)
+            return(addr)
+        elif(k == curses.KEY_RIGHT):
             y = moveRight(edit, mode, y)
         elif(k == curses.KEY_LEFT):
-            edit.addstr(l-1, 16, "LT")
             y = moveLeft(edit, mode, y)
         elif(k == curses.KEY_DOWN):
-            edit.addstr(l-1, 16, "DN")
             x = moveDown(edit, mode, x)
         elif(k == curses.KEY_UP):
-            edit.addstr(l-1, 16, "UP")
             x = moveUp(edit, mode, x)
-        elif(k == 0x1B): # ESC - quit
-            break
+        elif(k == 0x67): # g - goto
+            # Need text edit
+            # use index as that controls the loop
+            addr = gotoAddr(edit, addr)
         elif(k == 0x09):
             if(mode == "ascii"):
                 y = hCol
@@ -830,8 +835,9 @@ def hexEdit(edit):
         #
         time.sleep(0.1)
     #
-
+    return(addr)
 #
+
 def xchr(x):
     c = chr(x)
     #
@@ -842,6 +848,50 @@ def xchr(x):
     #
 #
 
+###
+### @FIXME: Double character entry, this trigger the same issues with other input
+###
+def gotoAddr(adit, addr):
+    """
+        1st try we have char doubling (type f get ff
+        2nd try of the Goto
+        Traceback (most recent call last):
+        File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 1596, in <module>
+            callMe(r)
+        File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 1358, in callMe
+            zCmds[name]()
+        File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 991, in zEdit
+            addr = gotoAddr(edit, addr)
+        File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 855, in gotoAddr
+            foo = maketextbox(stdscr,
+        File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 1280, in maketextbox
+            nw.addstr(0, 0, value, textColorpair)
+            _curses.error: addwstr() returned ERR
+    """
+    # A page = 256 bytes and starts at 0 for the first page
+    # Will adjust so something like E741 returns E700 (start of the E7 page)
+    t = addr
+    # Text box 1 tall and 14+1 wide (otherwise it blows up)
+    foz = maketextbox(stdscr,
+                      1, 5,
+                      25, 58,
+                      "%04x" % (addr),
+                      deco="none",
+                      textColorpair=curses.color_pair(0),
+                      decoColorpair=curses.color_pair(1))
+    addr = foz.edit().strip() # edit and strip are durses calls
+    del foz
+    try:
+        addr = int(addr, 16)
+        if(addr > 0xffff or addr < 0):
+            addr = t
+        #
+    except:
+        addr = t
+    #
+    return(addr & 0xFF00)
+#
+
 # was zPrint
 # addr  00 01 02 03 03 05 06 07 08 09 0A 0B 0C 0D 0E 0F  0123456789ABCDEF
 # 0000
@@ -850,7 +900,7 @@ def zEdit():
     # Normal mode for zEdit is print
     # but I want to be able to edit the segments in memory and move them around
     # So that would be in the edit mode. Not sure how I'll deal with this yet.
-    # For now I'll just keep it simple
+     # For now I'll just keep it simple
     mode = "Print"
     zMenu.addstr(mboxHt-2, 2, "Status: zEdit ")
 
@@ -885,9 +935,10 @@ def zEdit():
     ###   IndexError: list index out of range
     ### I have no idea what causes this???
     ###
-    edit.keypad(True)
+    edit.keypad(True)           # Gives me the arrow keys
     edit.nodelay(1)
-    while(index < promSize):
+
+    while(addr < promSize):
         if(addr >= stowLen):
             zRefresh()
             index = promSize+1
@@ -905,16 +956,16 @@ def zEdit():
             # Print hex value, Print ASCII value
             for a in range(16):
                 v = stow[addr]
-                addr += 1
                 edit.addstr(tLine,  8+(a*3), "%02x" % v)       # Hex 
                 edit.addstr(tLine, 57+a,     "%s"   % xchr(v)) # ASCII (or dot)
+                addr += 1
             # That's one complete line
             #
         # That's one complete screen
 
         #
-        index += 256 # 1 page = 256 or 16x16
-        page    = int(index/256)
+        #index += 256 # 1 page = 256 or 16x16
+        page    = int(addr/256)
         s = "[ Page: %02d of %0d ]" % (page, pages)
         slen = len(s)
         mid  = int((w-slen)/2)
@@ -927,49 +978,50 @@ def zEdit():
         curses.noecho()
         k = edit.getch()
         curses.echo() # Just a safety for now
-        #edit.addstr(l-1, 16, chr(k))
 
-        if(k == curses.KEY_RIGHT):
-            edit.addstr(l-1, 16, "RT")
-        elif(k == curses.KEY_LEFT):
-            edit.addstr(l-1, 16, "LT")
-        elif(k == curses.KEY_DOWN):
-            edit.addstr(l-1, 16, "DN")
-        elif(k == curses.KEY_UP):
-            edit.addstr(l-1, 16, "UP")
-        elif(k == 0x78): # x - quit
-            #del edit
-            zRefresh()
-            index = promSize+1
-            #return
-        elif(k == 0x1B): # ESC - quit
+        if(k == 0x1B or k == 0x78 or k == 0x71 or k == 0x58 or k == 0x51): # ESC/x/q - quit
             edit.addstr(l-1, 16, "0x%04x" % (k))
             zRefresh()
-            index = promSize+1
-            continue
-        elif(k == 0x71): # q - quit
+            addr = promSize+1
             break
-            zRefresh()
-            index = promSize+1
         elif(k == 0x2D): # - minus - go back 1 page
-            index -= 512
+            #index -= 512
             addr  -= 512
+            continue
         elif(k == 0x65): # e - edit
-            hexEdit(edit)
+            # Why does this return and we exit?
+            hexEdit(edit, addr-256)
+            # Oh, yeah, need to set it back
+            #index -= 512
+            addr  -= 256 # Stay on the same page
+            continue
         elif(k == 0x67): # g - goto
-            pass
+            # Need text edit
+            # use index as that controls the loop
+            addr = gotoAddr(edit, addr)
+            continue
         elif(k == 0x7F):
-            index -= 512
-            addr  -= 512
+            #index -= 512
+            addr  -= 512 # Go back 2 pages (we're advanced to the next page)
             continue
         elif(k < 0x7F and k > 0):
             continue
+        elif(k == -1):
+            # Okay this is when getch() returns nothing
+            time.sleep(0.1)
+            addr  -= 256 # Stay on the same page
+            continue
         else:
+            #Any other key should advance us
             if(isinstance(k, str)):
-               edit.addstr(l-1, 16, "0x04x" % k)
+                edit.addstr(l-1, 16, "0x%04x s" % k)
             else:
-                index -= 256
-                addr  -= 256
+                edit.addstr(l-1, 16, "0x%04x i" % k)
+                # I'm not sure what this is for anymore
+                # I think it catches the k when it's not set because of nodelay
+                addr  -= 256 # Stay on the same page
+                time.sleep(0.1)
+                continue
             #
         #
         """
@@ -987,12 +1039,14 @@ def zEdit():
             case _:             # Default
                 pass
         """
-        time.sleep(0.1)
+
         #
     # while
     edit.nodelay(0)
     edit.keypad(False)
-    del edit
+
+    del(edit)
+
     zRefresh()
 #
 
@@ -1019,6 +1073,7 @@ textArray = [
     ""
 ]
 #
+
 def zInformation():
     zMenu.addstr(mboxHt-2, 2, "Status: zInformation ")
     ###
@@ -1239,9 +1294,12 @@ def maketextbox(screen, h, w, y, x, value="", deco=None, underlineChr="_", textC
     nw.attron(textColorpair)
     screen.refresh()
 
+    del nw
     return txtbox
 #
 
+#
+# https://stackoverflow.com/questions/4581441/edit-text-using-python-and-curses-textbox-widget
 #
 def fileTextbox(dName, fName):
     # take the existing dir path and filename then present that to the user
@@ -1302,9 +1360,11 @@ zCmds = {
     'i':  zInformation,
     'c':  zChange,
     'a':  zCleanEE,
+    'q':  zExit,
     'x':  zExit,
     '1':  zWait,
     't':  zTools,
+    0x1B: zExit,
     0x0C: zRefresh
 }
 
@@ -1534,17 +1594,19 @@ while(r != 'x'):
 
     zMenu.refresh()
 
-    #y = int(mboxHt * 0.50)
-    #x = int(mboxWd/2) - 29
-    #zMenu.addstr(y, 40, "Prompt:  ")
+    #
     line += 2 # this is the Y position
     x = 40
     zMenu.addstr(line, x, "Prompt:  ")
-    #r = zMenu.getch()
-    r = zMenu.getkey()
-    k = ord(r)
-    if( k < 0x7f and k > 0x19): # isPrintable(r)
-        zMenu.addstr(line, x+9, "%s [%s]" % (r, r))
+    #r = zMenu.getkey()
+    #k = ord(r)
+    r = zMenu.getch()
+    k = chr(r)
+    if( r < 0x7f and r > 0x1F): # isPrintable(r)
+        zMenu.addstr(line, x+29, "%s (0x%04x)" % (k, r))
+        r = k
+    else:
+        zMenu.addstr(line, x+29, "0x%04x" % (r))
     #
     zMenu.refresh()
     callMe(r)
