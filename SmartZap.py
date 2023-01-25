@@ -6,6 +6,7 @@ from configparser import ConfigParser
 
 import curses                   # Normal curses
 import curses.textpad           # Textpad (do I still need this?)
+#from curses.textpad import rectangle
 import npyscreen                # Handles forms and directories
 
 import serial
@@ -821,6 +822,10 @@ def hexEdit(edit, addr):
             # Need text edit
             # use index as that controls the loop
             addr = gotoAddr(edit, addr)
+        elif(k == 0x47): # G - goto
+            # Need text edit
+            # use index as that controls the loop
+            addr = show_search_screen(stdscr, addr)
         elif(k == 0x09):
             if(mode == "ascii"):
                 y = hCol
@@ -848,7 +853,51 @@ def xchr(x):
     #
 #
 
-###
+# Traceback (most recent call last):
+# File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 1632, in <module>
+# callMe(r)
+# File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 1394, in callMe
+# zCmds[name]()
+# File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 1013, in zEdit
+# hexEdit(edit, addr-256)
+# File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 827, in hexEdit.
+# show_search_screen(stdscr)
+# File "/home/njc/dev/git/SmartZap/./SmartZap.py", line 861, in show_search_screen
+# rectangle(stdscr, 2, 2, 4, 44)
+# NameError: name 'rectangle' is not defined
+# #19 https://www.programcreek.com/python/example/96229/curses.textpad.Textbox
+def show_search_screen(stdscr, addr):
+    curses.curs_set(1)
+    curses.noecho()
+    stdscr.addstr(1, 2, "Artist name: (Ctrl-G to search)")
+
+    editwin = curses.newwin(1, 40, 3, 3)
+    curses.textpad.rectangle(stdscr, 2, 2, 4, 44)
+    stdscr.refresh()
+
+    box = curses.textpad.Textbox(editwin)
+    box.edit()
+
+    t = addr
+    addr = box.gather()
+    del editwin
+    curses.echo()
+    #
+    # Need to convert criteria to an int between 0 & FFFF
+    #
+    try:
+        addr = int(addr, 16)
+        if(addr > 0xffff or addr < 0):
+            addr = t
+        #
+    except:
+        addr = t
+    #
+    curses.echo()
+    return(addr & 0xFF00)
+#
+
+### SRAM Tire Pressure Guide
 ### @FIXME: Double character entry, this trigger the same issues with other input
 ###
 def gotoAddr(adit, addr):
@@ -868,6 +917,7 @@ def gotoAddr(adit, addr):
             nw.addstr(0, 0, value, textColorpair)
             _curses.error: addwstr() returned ERR
     """
+    curses.noecho()
     # A page = 256 bytes and starts at 0 for the first page
     # Will adjust so something like E741 returns E700 (start of the E7 page)
     t = addr
@@ -881,6 +931,7 @@ def gotoAddr(adit, addr):
                       decoColorpair=curses.color_pair(1))
     addr = foz.edit().strip() # edit and strip are durses calls
     del foz
+    print("\n%s\n" % addr)
     try:
         addr = int(addr, 16)
         if(addr > 0xffff or addr < 0):
@@ -889,6 +940,7 @@ def gotoAddr(adit, addr):
     except:
         addr = t
     #
+    curses.echo()
     return(addr & 0xFF00)
 #
 
@@ -1137,6 +1189,7 @@ def getStartEnd():
     xwin.refresh()
 
     # Text box 1 tall and 14+1 wide (otherwise it blows up)
+    curses.noecho()
     foo = maketextbox(stdscr,
                       1, 15,
                       yPos+3, xPos+13,
@@ -1145,6 +1198,7 @@ def getStartEnd():
                       textColorpair=curses.color_pair(0),
                       decoColorpair=curses.color_pair(1))
     text = foo.edit().strip()
+    curses.echo()
     del foo, xwin
     zRefresh()
 
